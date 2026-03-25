@@ -1,13 +1,13 @@
-package libbindergo
+package libbinder
 
 import (
 	"context"
 	"errors"
 	"time"
 
-	api "libbinder-go/binder"
-	"libbinder-go/internal/kernel"
-	"libbinder-go/internal/protocol"
+	api "github.com/wdsgyj/libbinder-go/binder"
+	"github.com/wdsgyj/libbinder-go/internal/kernel"
+	"github.com/wdsgyj/libbinder-go/internal/protocol"
 )
 
 const (
@@ -35,8 +35,9 @@ func (m *serviceManager) CheckService(ctx context.Context, name string) (api.Bin
 	if handle == nil {
 		return nil, api.ErrNoService
 	}
+	service := m.conn.Handle(*handle)
 	m.conn.markHandleAcquired(*handle)
-	return m.conn.Handle(*handle), nil
+	return service, nil
 }
 
 func (m *serviceManager) WaitService(ctx context.Context, name string) (api.Binder, error) {

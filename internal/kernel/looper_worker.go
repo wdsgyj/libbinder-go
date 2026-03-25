@@ -11,7 +11,7 @@ import (
 	"sync"
 	"syscall"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 const (

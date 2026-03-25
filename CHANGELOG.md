@@ -2,6 +2,70 @@
 
 本文件记录当前仓库的重要阶段性产出。
 
+## 0.0.2 - 2026-03-25
+
+相对 `0.0.1`，本版本主要完成了路线图中的阶段 9 与阶段 10 主体工作，并补充了最小 demo 以及模块/包名规范化调整。
+
+### Changed
+
+- 完成远端 Binder 生命周期管理增强：
+  - `Binder` 接口新增 `Close() error`
+  - 新增 `binder.ErrClosed`
+  - 远端 Binder 支持显式关闭
+  - 使用 finalizer 作为远端句柄释放的兜底，而不是主生命周期路径
+- 引入进程级 handle 引用跟踪：
+  - binder 引用与 death watch 引用统一计数
+  - `AcquireHandle` / `ReleaseHandle` 成对工作
+  - 处理中途 acquire 与 release 并发交错时的释放时机
+- 完成 death notification 退订流：
+  - 最后一个订阅关闭时发起 `ClearDeathNotification`
+  - 处理 `BR_CLEAR_DEATH_NOTIFICATION_DONE`
+  - 订阅关闭后的 handle/watch pin 会正确释放
+- `ServiceManager.CheckService` 返回的远端对象现在会立即进入引用跟踪，而不是仅靠后续事务隐式 acquire。
+- 顶层 Go 模块名从 `libbinder-go` 改为 `github.com/wdsgyj/libbinder-go`。
+- 顶层 Go 包名从 `libbindergo` 改为 `libbinder`。
+
+### Added
+
+- 增加生命周期与引用跟踪实现：
+  - `internal/runtime/refs.go`
+  - `internal/runtime/handles.go` 中的 `ReleaseHandle`
+  - kernel backend 中的 `ReleaseHandle`
+- 增加订阅包装层：
+  - `subscription_wrapper.go`
+  - 用于将 death subscription 的结束和 handle/watch 引用释放绑定起来
+- 增加 demo：
+  - `demo/echo/server`
+  - `demo/echo/client`
+  - `demo/echo/README.md`
+  - 演示通过 `ServiceManager` 注册一个 echo 服务并由 client 查找后发起事务
+
+### Testing
+
+- 补充生命周期与 death notification 相关单测：
+  - `internal/runtime/refs_test.go`
+  - `internal/kernel/death_registry_test.go` 中的 clear/unsubscribe 场景
+- 补充 Android 集成测试：
+  - `WatchDeath + Close`
+  - `WatchDeath + context cancel`
+- 补充并发与线程绑定测试：
+  - client worker 固定 OS 线程验证
+  - backend 并发 ping context manager 验证
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - 生命周期与 death notification 相关改动已通过
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
+### Current Boundaries
+
+- stock Android emulator 上仍可能因为 SELinux / service policy 拒绝 `AddService`，相关集成测试仍按已知受限场景跳过。
+- 目前具备 death notification 注册、退订与本地状态清理，但“真实远端进程退出后收到死亡通知”的端到端 Android 场景还没有稳定自动化用例。
+- 服务反注册、更加完整的远端资源清理策略、Binder RPC backend、lazy service、stability、record/replay、缓存策略等增强能力仍未纳入本版本。
+
 ## 0.0.1 - 2026-03-25
 
 首个可运行的 MVP 版本，范围限定为“基于现有 Linux/Android kernel Binder driver 的 Go 用户态实现”，不包含使用 Go 重写内核 Binder。

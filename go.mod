@@ -1,3 +1,3 @@
-module libbinder-go
+module github.com/wdsgyj/libbinder-go
 
 go 1.22

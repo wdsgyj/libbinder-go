@@ -1,6 +1,6 @@
 package protocol
 
-import api "libbinder-go/binder"
+import api "github.com/wdsgyj/libbinder-go/binder"
 
 // Status models the internal split between transport failure and remote exception.
 type Status struct {

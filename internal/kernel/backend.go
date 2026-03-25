@@ -3,7 +3,7 @@ package kernel
 import (
 	"context"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 const DefaultDriverPath = "/dev/binder"
@@ -42,7 +42,7 @@ func NewBackend(driverPath string) *Backend {
 		Process: NewProcessState(driverPath),
 		locals:  newLocalRegistry(),
 	}
-	backend.deaths = newDeathRegistry(backend.requestDeathNotification)
+	backend.deaths = newDeathRegistry(backend.requestDeathNotification, backend.clearDeathNotification)
 	driver.deaths = backend.deaths
 	backend.Workers = NewWorkerManager(backend)
 	return backend
@@ -134,6 +134,24 @@ func (b *Backend) AcquireHandle(ctx context.Context, handle uint32) error {
 	})
 }
 
+func (b *Backend) ReleaseHandle(ctx context.Context, handle uint32) error {
+	if handle == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	client, err := b.Workers.Client()
+	if err != nil {
+		return err
+	}
+
+	return client.Do(ctx, func(_ *ThreadState) error {
+		return b.Driver.ReleaseHandle(handle)
+	})
+}
+
 func (b *Backend) WatchDeath(ctx context.Context, handle uint32) (api.Subscription, error) {
 	if b == nil || b.deaths == nil {
 		return nil, ErrUnsupportedPlatform
@@ -153,5 +171,20 @@ func (b *Backend) requestDeathNotification(ctx context.Context, handle uint32, c
 
 	return client.Do(ctx, func(_ *ThreadState) error {
 		return b.Driver.RequestDeathNotification(handle, cookie)
+	})
+}
+
+func (b *Backend) clearDeathNotification(ctx context.Context, handle uint32, cookie uintptr) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	client, err := b.Workers.Client()
+	if err != nil {
+		return err
+	}
+
+	return client.Do(ctx, func(_ *ThreadState) error {
+		return b.Driver.ClearDeathNotification(handle, cookie)
 	})
 }

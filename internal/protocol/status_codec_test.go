@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 func TestStatusCodecOK(t *testing.T) {

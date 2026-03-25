@@ -1,6 +1,6 @@
 package runtime
 
-import api "libbinder-go/binder"
+import api "github.com/wdsgyj/libbinder-go/binder"
 
 type LocalNodeRef struct {
 	ID uintptr

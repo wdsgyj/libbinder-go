@@ -1,6 +1,6 @@
 package runtime
 
-import "libbinder-go/internal/kernel"
+import "github.com/wdsgyj/libbinder-go/internal/kernel"
 
 // Config holds top-level runtime construction settings.
 type Config struct {

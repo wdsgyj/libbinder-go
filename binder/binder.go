@@ -17,6 +17,7 @@ type Binder interface {
 	Descriptor(ctx context.Context) (string, error)
 	Transact(ctx context.Context, code uint32, data *Parcel, flags Flags) (*Parcel, error)
 	WatchDeath(ctx context.Context) (Subscription, error)
+	Close() error
 }
 
 // Handler serves transactions for a local Binder object.

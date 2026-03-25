@@ -1,13 +1,13 @@
-package libbindergo
+package libbinder
 
 import (
 	"context"
 	"errors"
-	"sync"
+	"time"
 
-	api "libbinder-go/binder"
-	"libbinder-go/internal/kernel"
-	"libbinder-go/internal/runtime"
+	api "github.com/wdsgyj/libbinder-go/binder"
+	"github.com/wdsgyj/libbinder-go/internal/kernel"
+	"github.com/wdsgyj/libbinder-go/internal/runtime"
 )
 
 const contextManagerHandle uint32 = 0
@@ -23,9 +23,6 @@ type Config struct {
 type Conn struct {
 	rt *runtime.Runtime
 	sm *serviceManager
-
-	acquiredMu sync.Mutex
-	acquired   map[uint32]struct{}
 }
 
 // Open starts a Binder connection backed by the kernel Binder driver.
@@ -46,12 +43,11 @@ func Open(cfg Config) (*Conn, error) {
 	}
 
 	conn := &Conn{
-		rt:       rt,
-		acquired: make(map[uint32]struct{}),
+		rt: rt,
 	}
 	conn.sm = &serviceManager{
 		conn:   conn,
-		target: &remoteBinder{conn: conn, handle: contextManagerHandle},
+		target: newRemoteBinder(conn, contextManagerHandle),
 	}
 	return conn, nil
 }
@@ -66,7 +62,7 @@ func (c *Conn) Close() error {
 
 // Handle returns a remote Binder proxy for the given kernel Binder handle.
 func (c *Conn) Handle(handle uint32) api.Binder {
-	return &remoteBinder{conn: c, handle: handle}
+	return newRemoteBinder(c, handle)
 }
 
 // ContextManager returns a Binder proxy for the process's Binder context manager.
@@ -96,33 +92,90 @@ func (c *Conn) ensureHandleAcquired(ctx context.Context, handle uint32) error {
 	if c == nil || c.rt == nil || handle == 0 {
 		return nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	c.acquiredMu.Lock()
-	_, ok := c.acquired[handle]
-	c.acquiredMu.Unlock()
-	if ok {
+	for {
+		needAcquire, wait := c.rt.Refs.BeginAcquire(handle)
+		if wait != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-wait:
+				continue
+			}
+		}
+		if !needAcquire {
+			return nil
+		}
+
+		err := mapRuntimeError(c.rt.AcquireHandle(ctx, handle))
+		shouldRelease := c.rt.Refs.FinishAcquire(handle, err == nil)
+		if err != nil {
+			return err
+		}
+		if shouldRelease {
+			return c.releaseKernelHandle(handle)
+		}
 		return nil
 	}
-
-	if err := mapRuntimeError(c.rt.AcquireHandle(ctx, handle)); err != nil {
-		return err
-	}
-
-	c.acquiredMu.Lock()
-	c.acquired[handle] = struct{}{}
-	c.acquiredMu.Unlock()
-	return nil
 }
 
 func (c *Conn) markHandleAcquired(handle uint32) {
-	if c == nil || handle == 0 {
+	if c == nil || c.rt == nil || handle == 0 {
 		return
 	}
-	c.acquiredMu.Lock()
-	if c.acquired != nil {
-		c.acquired[handle] = struct{}{}
+	c.rt.Refs.MarkAcquired(handle)
+}
+
+func (c *Conn) retainBinder(handle uint32) {
+	if c == nil || c.rt == nil || handle == 0 {
+		return
 	}
-	c.acquiredMu.Unlock()
+	c.rt.Refs.RetainBinder(handle)
+}
+
+func (c *Conn) retainWatch(handle uint32) {
+	if c == nil || c.rt == nil || handle == 0 {
+		return
+	}
+	c.rt.Refs.RetainWatch(handle)
+}
+
+func (c *Conn) releaseBinder(handle uint32) error {
+	if c == nil || c.rt == nil || handle == 0 {
+		return nil
+	}
+	if !c.rt.Refs.ReleaseBinder(handle) {
+		return nil
+	}
+	return c.releaseKernelHandle(handle)
+}
+
+func (c *Conn) releaseWatch(handle uint32) error {
+	if c == nil || c.rt == nil || handle == 0 {
+		return nil
+	}
+	if !c.rt.Refs.ReleaseWatch(handle) {
+		return nil
+	}
+	return c.releaseKernelHandle(handle)
+}
+
+func (c *Conn) releaseKernelHandle(handle uint32) error {
+	if c == nil || c.rt == nil || handle == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := mapRuntimeError(c.rt.ReleaseHandle(ctx, handle))
+	if errors.Is(err, kernel.ErrDriverClosed) {
+		return nil
+	}
+	return err
 }
 
 func (c *Conn) registerLocalNode(handler api.Handler, serial bool) (runtime.LocalNodeRef, error) {
@@ -139,9 +192,13 @@ func (c *Conn) watchDeath(ctx context.Context, handle uint32) (api.Subscription,
 	if err := c.ensureHandleAcquired(ctx, handle); err != nil {
 		return nil, err
 	}
+	c.retainWatch(handle)
 	sub, err := c.rt.Kernel.WatchDeath(ctx, handle)
 	if err != nil {
+		_ = c.releaseWatch(handle)
 		return nil, mapRuntimeError(err)
 	}
-	return sub, nil
+	return newTrackedSubscription(sub, func() error {
+		return c.releaseWatch(handle)
+	}), nil
 }

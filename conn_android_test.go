@@ -1,6 +1,6 @@
 //go:build android
 
-package libbindergo
+package libbinder
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	api "libbinder-go/binder"
-	"libbinder-go/internal/kernel"
+	api "github.com/wdsgyj/libbinder-go/binder"
+	"github.com/wdsgyj/libbinder-go/internal/kernel"
 )
 
 func TestContextManagerDescriptorOnAndroid(t *testing.T) {
@@ -145,6 +145,63 @@ func TestServiceManagerAddServiceAndTransactOnAndroid(t *testing.T) {
 	}
 }
 
+func TestServiceWatchDeathCloseOnAndroid(t *testing.T) {
+	conn := mustOpenConn(t)
+	defer closeConn(t, conn)
+
+	service, err := conn.ServiceManager().CheckService(context.Background(), "activity")
+	if err != nil {
+		t.Fatalf("CheckService(activity): %v", err)
+	}
+
+	sub, err := service.WatchDeath(context.Background())
+	if err != nil {
+		t.Fatalf("WatchDeath(activity): %v", err)
+	}
+	if sub == nil {
+		t.Fatal("WatchDeath(activity) returned nil subscription")
+	}
+
+	if err := sub.Close(); err != nil {
+		t.Fatalf("sub.Close: %v", err)
+	}
+	waitSubscriptionDone(t, sub.Done(), "WatchDeath.Close")
+
+	if err := service.Close(); err != nil {
+		t.Fatalf("service.Close: %v", err)
+	}
+	if _, err := service.Descriptor(context.Background()); !errors.Is(err, api.ErrClosed) {
+		t.Fatalf("Descriptor after Close error = %v, want ErrClosed", err)
+	}
+}
+
+func TestServiceWatchDeathContextCancelOnAndroid(t *testing.T) {
+	conn := mustOpenConn(t)
+	defer closeConn(t, conn)
+
+	service, err := conn.ServiceManager().CheckService(context.Background(), "activity")
+	if err != nil {
+		t.Fatalf("CheckService(activity): %v", err)
+	}
+	defer func() {
+		if err := service.Close(); err != nil {
+			t.Fatalf("service.Close: %v", err)
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sub, err := service.WatchDeath(ctx)
+	if err != nil {
+		t.Fatalf("WatchDeath(activity): %v", err)
+	}
+
+	cancel()
+	waitSubscriptionDone(t, sub.Done(), "WatchDeath context cancel")
+	if err := sub.Err(); err != nil {
+		t.Fatalf("sub.Err() = %v, want nil", err)
+	}
+}
+
 func mustOpenConn(t *testing.T) *Conn {
 	t.Helper()
 
@@ -160,5 +217,15 @@ func closeConn(t *testing.T, conn *Conn) {
 
 	if err := conn.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+func waitSubscriptionDone(t *testing.T, ch <-chan struct{}, name string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting for %s", name)
 	}
 }

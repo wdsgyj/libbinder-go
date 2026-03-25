@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	api "libbinder-go/binder"
-	"libbinder-go/internal/kernel"
+	api "github.com/wdsgyj/libbinder-go/binder"
+	"github.com/wdsgyj/libbinder-go/internal/kernel"
 )
 
 func TestRuntimeTransactHandlePingContextManagerOnAndroid(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"unsafe"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 const binderFlatObjectSize = 24

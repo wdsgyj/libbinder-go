@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 func TestDispatchLocalTransaction(t *testing.T) {

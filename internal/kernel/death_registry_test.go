@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 func TestDeathRegistryReusesKernelWatchPerHandle(t *testing.T) {
@@ -18,6 +18,8 @@ func TestDeathRegistryReusesKernelWatchPerHandle(t *testing.T) {
 	var calls []requestCall
 	registry := newDeathRegistry(func(_ context.Context, handle uint32, cookie uintptr) error {
 		calls = append(calls, requestCall{handle: handle, cookie: cookie})
+		return nil
+	}, func(_ context.Context, _ uint32, _ uintptr) error {
 		return nil
 	})
 
@@ -37,15 +39,21 @@ func TestDeathRegistryReusesKernelWatchPerHandle(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
+	waitDone(t, first.Done(), "first.Done")
+
 	if err := second.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
+	registry.NotifyCleared(calls[0].cookie)
+	waitDone(t, second.Done(), "second.Done")
 }
 
 func TestDeathRegistryNotifyDeadFinishesSubscribers(t *testing.T) {
 	var cookie uintptr
 	registry := newDeathRegistry(func(_ context.Context, _ uint32, got uintptr) error {
 		cookie = got
+		return nil
+	}, func(_ context.Context, _ uint32, _ uintptr) error {
 		return nil
 	})
 
@@ -72,7 +80,11 @@ func TestDeathRegistryNotifyDeadFinishesSubscribers(t *testing.T) {
 }
 
 func TestDeathRegistryContextCancellationClosesSubscription(t *testing.T) {
-	registry := newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {
+	var registry *deathRegistry
+	registry = newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {
+		return nil
+	}, func(_ context.Context, _ uint32, cookie uintptr) error {
+		go registry.NotifyCleared(cookie)
 		return nil
 	})
 
@@ -94,6 +106,8 @@ func TestDeathRegistryRequestErrorRollsBackHandle(t *testing.T) {
 	wantErr := errors.New("boom")
 	registry := newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {
 		return wantErr
+	}, func(_ context.Context, _ uint32, _ uintptr) error {
+		return nil
 	})
 
 	sub, err := registry.Watch(context.Background(), 5)
@@ -110,6 +124,61 @@ func TestDeathRegistryRequestErrorRollsBackHandle(t *testing.T) {
 	if got := len(registry.byCookie); got != 0 {
 		t.Fatalf("len(byCookie) = %d, want 0", got)
 	}
+}
+
+func TestDeathRegistryCloseLastSubscriberClearsKernelWatch(t *testing.T) {
+	type clearCall struct {
+		handle uint32
+		cookie uintptr
+	}
+
+	var cleared []clearCall
+	registry := newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {
+		return nil
+	}, func(_ context.Context, handle uint32, cookie uintptr) error {
+		cleared = append(cleared, clearCall{handle: handle, cookie: cookie})
+		return nil
+	})
+
+	sub, err := registry.Watch(context.Background(), 17)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	if err := sub.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := len(cleared); got != 1 {
+		t.Fatalf("clear calls = %d, want 1", got)
+	}
+
+	select {
+	case <-sub.Done():
+		t.Fatal("sub.Done closed before clear ack")
+	default:
+	}
+
+	registry.NotifyCleared(cleared[0].cookie)
+	waitDone(t, sub.Done(), "sub.Done")
+}
+
+func TestDeathRegistryCloseLastSubscriberClearFailureFinishesSubscription(t *testing.T) {
+	wantErr := errors.New("clear failed")
+	registry := newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {
+		return nil
+	}, func(_ context.Context, _ uint32, _ uintptr) error {
+		return wantErr
+	})
+
+	sub, err := registry.Watch(context.Background(), 19)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	if err := sub.Close(); !errors.Is(err, wantErr) {
+		t.Fatalf("Close err = %v, want %v", err, wantErr)
+	}
+	waitDone(t, sub.Done(), "sub.Done")
 }
 
 func waitDone(t *testing.T, ch <-chan struct{}, name string) {

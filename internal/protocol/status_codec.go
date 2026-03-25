@@ -3,7 +3,7 @@ package protocol
 import (
 	"fmt"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 const (

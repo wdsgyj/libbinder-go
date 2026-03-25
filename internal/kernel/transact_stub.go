@@ -2,7 +2,7 @@
 
 package kernel
 
-import api "libbinder-go/binder"
+import api "github.com/wdsgyj/libbinder-go/binder"
 
 func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload []byte, offsets []uint64, flags api.Flags) ([]byte, []api.ParcelObject, []uint32, error) {
 	return nil, nil, nil, ErrUnsupportedPlatform

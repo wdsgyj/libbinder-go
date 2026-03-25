@@ -5,11 +5,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	api "libbinder-go/binder"
+	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
 type deathRegistry struct {
 	request func(context.Context, uint32, uintptr) error
+	clear   func(context.Context, uint32, uintptr) error
 
 	mu         sync.Mutex
 	nextCookie uint64
@@ -22,7 +23,8 @@ type deathWatch struct {
 	handle uint32
 	cookie uintptr
 
-	subs map[*deathSubscription]struct{}
+	subs        map[*deathSubscription]struct{}
+	closingSubs map[*deathSubscription]struct{}
 }
 
 type deathSubscription struct {
@@ -35,9 +37,13 @@ type deathSubscription struct {
 	once sync.Once
 }
 
-func newDeathRegistry(request func(context.Context, uint32, uintptr) error) *deathRegistry {
+func newDeathRegistry(
+	request func(context.Context, uint32, uintptr) error,
+	clear func(context.Context, uint32, uintptr) error,
+) *deathRegistry {
 	return &deathRegistry{
 		request:  request,
+		clear:    clear,
 		byHandle: make(map[uint32]*deathWatch),
 		byCookie: make(map[uintptr]*deathWatch),
 	}
@@ -85,9 +91,10 @@ func (r *deathRegistry) attach(handle uint32) (*deathSubscription, bool, error) 
 
 	cookie := uintptr(atomic.AddUint64(&r.nextCookie, 1))
 	watch := &deathWatch{
-		handle: handle,
-		cookie: cookie,
-		subs:   make(map[*deathSubscription]struct{}),
+		handle:      handle,
+		cookie:      cookie,
+		subs:        make(map[*deathSubscription]struct{}),
+		closingSubs: make(map[*deathSubscription]struct{}),
 	}
 	sub := newDeathSubscription(r, watch)
 	watch.subs[sub] = struct{}{}
@@ -129,18 +136,51 @@ func (r *deathRegistry) bridgeContext(ctx context.Context, sub *deathSubscriptio
 	}()
 }
 
-func (r *deathRegistry) removeSub(sub *deathSubscription) {
+func (r *deathRegistry) removeSub(sub *deathSubscription) error {
 	if sub == nil {
-		return
+		return nil
 	}
+
+	var (
+		clearHandle uint32
+		clearCookie uintptr
+		needsClear  bool
+	)
 
 	r.mu.Lock()
-	if watch := sub.watch; watch != nil {
-		delete(watch.subs, sub)
+	watch := sub.watch
+	if watch == nil {
+		r.mu.Unlock()
+		sub.finish(nil)
+		return nil
 	}
+
+	delete(watch.subs, sub)
+	if len(watch.subs) != 0 {
+		r.mu.Unlock()
+		sub.finish(nil)
+		return nil
+	}
+
+	if current := r.byHandle[watch.handle]; current == watch {
+		delete(r.byHandle, watch.handle)
+	}
+	watch.closingSubs[sub] = struct{}{}
+	clearHandle = watch.handle
+	clearCookie = watch.cookie
+	needsClear = true
 	r.mu.Unlock()
 
-	sub.finish(nil)
+	if !needsClear || r.clear == nil {
+		sub.finish(nil)
+		return nil
+	}
+
+	if err := r.clear(context.Background(), clearHandle, clearCookie); err != nil {
+		r.finishClearing(clearCookie, nil)
+		return err
+	}
+	return nil
 }
 
 func (r *deathRegistry) NotifyDead(cookie uintptr) {
@@ -152,13 +192,19 @@ func (r *deathRegistry) NotifyDead(cookie uintptr) {
 	}
 
 	delete(r.byCookie, cookie)
-	delete(r.byHandle, watch.handle)
+	if current := r.byHandle[watch.handle]; current == watch {
+		delete(r.byHandle, watch.handle)
+	}
 
-	subs := make([]*deathSubscription, 0, len(watch.subs))
+	subs := make([]*deathSubscription, 0, len(watch.subs)+len(watch.closingSubs))
 	for sub := range watch.subs {
 		subs = append(subs, sub)
 	}
+	for sub := range watch.closingSubs {
+		subs = append(subs, sub)
+	}
 	watch.subs = nil
+	watch.closingSubs = nil
 	r.mu.Unlock()
 
 	for _, sub := range subs {
@@ -167,16 +213,7 @@ func (r *deathRegistry) NotifyDead(cookie uintptr) {
 }
 
 func (r *deathRegistry) NotifyCleared(cookie uintptr) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	watch := r.byCookie[cookie]
-	if watch == nil || len(watch.subs) != 0 {
-		return
-	}
-
-	delete(r.byCookie, cookie)
-	delete(r.byHandle, watch.handle)
+	r.finishClearing(cookie, nil)
 }
 
 func (r *deathRegistry) Close() {
@@ -190,6 +227,9 @@ func (r *deathRegistry) Close() {
 	subs := make([]*deathSubscription, 0)
 	for _, watch := range r.byHandle {
 		for sub := range watch.subs {
+			subs = append(subs, sub)
+		}
+		for sub := range watch.closingSubs {
 			subs = append(subs, sub)
 		}
 	}
@@ -231,8 +271,7 @@ func (s *deathSubscription) Close() error {
 	if s == nil || s.registry == nil {
 		return nil
 	}
-	s.registry.removeSub(s)
-	return nil
+	return s.registry.removeSub(s)
 }
 
 func (s *deathSubscription) finish(err error) {
@@ -246,4 +285,29 @@ func (s *deathSubscription) finish(err error) {
 		close(s.done)
 		s.mu.Unlock()
 	})
+}
+
+func (r *deathRegistry) finishClearing(cookie uintptr, err error) {
+	r.mu.Lock()
+	watch := r.byCookie[cookie]
+	if watch == nil {
+		r.mu.Unlock()
+		return
+	}
+
+	delete(r.byCookie, cookie)
+	if current := r.byHandle[watch.handle]; current == watch {
+		delete(r.byHandle, watch.handle)
+	}
+
+	subs := make([]*deathSubscription, 0, len(watch.closingSubs))
+	for sub := range watch.closingSubs {
+		subs = append(subs, sub)
+	}
+	watch.closingSubs = nil
+	r.mu.Unlock()
+
+	for _, sub := range subs {
+		sub.finish(err)
+	}
 }

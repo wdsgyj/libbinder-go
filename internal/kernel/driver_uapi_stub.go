@@ -2,7 +2,7 @@
 
 package kernel
 
-import api "libbinder-go/binder"
+import api "github.com/wdsgyj/libbinder-go/binder"
 
 func (d *DriverManager) ProtocolVersion() (int32, error) {
 	return 0, ErrUnsupportedPlatform
@@ -37,6 +37,10 @@ func (d *DriverManager) WriteHandleCommand(cmd uint32, handle uint32) error {
 }
 
 func (d *DriverManager) AcquireHandle(handle uint32) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) ReleaseHandle(handle uint32) error {
 	return ErrUnsupportedPlatform
 }
 

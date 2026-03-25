@@ -12,6 +12,7 @@ var (
 	ErrPermissionDenied = errors.New("binder: permission denied")
 	ErrUnsupported      = errors.New("binder: unsupported operation")
 	ErrNoService        = errors.New("binder: service not found")
+	ErrClosed           = errors.New("binder: binder is closed")
 )
 
 // ExceptionCode models high-level remote exceptions returned by Binder calls.

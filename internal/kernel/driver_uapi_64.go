@@ -132,6 +132,13 @@ func (d *DriverManager) AcquireHandle(handle uint32) error {
 	return d.WriteHandleCommand(BCAcquire, handle)
 }
 
+func (d *DriverManager) ReleaseHandle(handle uint32) error {
+	if err := d.WriteHandleCommand(BCRelease, handle); err != nil {
+		return err
+	}
+	return d.WriteHandleCommand(BCDecRefs, handle)
+}
+
 func (d *DriverManager) WriteHandleCookieCommand(cmd uint32, handle uint32, cookie uintptr) error {
 	payload := make([]byte, binderHandleCookieSize)
 	binary.LittleEndian.PutUint32(payload[:4], handle)
