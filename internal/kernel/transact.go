@@ -14,14 +14,14 @@ import (
 const binderFlatObjectSize = 24
 
 func (d *DriverManager) TransactHandle(handle uint32, code uint32, payload []byte, flags api.Flags) ([]byte, []uint32, error) {
-	replyBytes, _, commands, err := d.TransactHandleParcel(handle, code, payload, flags)
+	replyBytes, _, commands, err := d.TransactHandleParcel(handle, code, payload, nil, flags)
 	if err != nil {
 		return nil, commands, err
 	}
 	return replyBytes, commands, nil
 }
 
-func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload []byte, flags api.Flags) ([]byte, []api.ParcelObject, []uint32, error) {
+func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload []byte, offsets []uint64, flags api.Flags) ([]byte, []api.ParcelObject, []uint32, error) {
 	var tx BinderTransactionData
 	tx.SetTargetHandle(handle)
 	tx.Code = code
@@ -29,19 +29,17 @@ func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload
 	if flags&api.FlagOneway != 0 {
 		tx.Flags |= TFOneWay
 	}
-	if len(payload) > 0 {
-		tx.DataSize = uint64(len(payload))
-		tx.DataBuffer = uint64(uintptr(unsafe.Pointer(&payload[0])))
-	}
+	setTransactionPayload(&tx, payload, offsets)
 
 	readBuf := make([]byte, 256)
 	bwr, err := d.WriteCommand(BCTransaction, tx.MarshalBinary(), readBuf)
 	runtime.KeepAlive(payload)
+	runtime.KeepAlive(offsets)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	commands, reply, err := parseDriverResponses(readBuf[:bwr.ReadConsumed])
+	commands, reply, err := d.parseDriverResponses(readBuf[:bwr.ReadConsumed])
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -55,7 +53,7 @@ func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload
 		if err != nil {
 			return nil, nil, commands, err
 		}
-		moreCommands, moreReply, err := parseDriverResponses(readBuf[:next.ReadConsumed])
+		moreCommands, moreReply, err := d.parseDriverResponses(readBuf[:next.ReadConsumed])
 		if err != nil {
 			return nil, nil, commands, err
 		}
@@ -69,9 +67,17 @@ func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload
 		return nil, nil, commands, fmt.Errorf("kernel: did not receive BR_REPLY, commands=%v", commandNames(commands))
 	}
 
-	replyBytes, replyObjects, err := copyReplyPayload(reply)
+	replyBytes, replyObjects, err := copyTransactionPayload(reply)
 	if err != nil {
 		return nil, nil, commands, err
+	}
+	if reply.Flags&TFStatus != 0 {
+		if reply.DataBuffer != 0 {
+			if freeErr := d.FreeBuffer(reply.BufferPointer()); freeErr != nil {
+				return nil, nil, commands, freeErr
+			}
+		}
+		return nil, nil, commands, statusReplyError(replyBytes)
 	}
 	if err := d.acquireParcelObjects(replyObjects); err != nil {
 		return nil, nil, commands, err
@@ -85,7 +91,7 @@ func (d *DriverManager) TransactHandleParcel(handle uint32, code uint32, payload
 	return replyBytes, replyObjects, commands, nil
 }
 
-func parseDriverResponses(buf []byte) ([]uint32, *BinderTransactionData, error) {
+func (d *DriverManager) parseDriverResponses(buf []byte) ([]uint32, *BinderTransactionData, error) {
 	var commands []uint32
 	var reply *BinderTransactionData
 
@@ -99,13 +105,51 @@ func parseDriverResponses(buf []byte) ([]uint32, *BinderTransactionData, error) 
 		pos += 4
 
 		switch cmd {
-		case BRNoop, BRTransactionComplete:
+		case BRNoop, BRTransactionComplete, BRSpawnLooper, BRFinished:
 		case BRError:
 			if len(buf[pos:]) < 4 {
 				return commands, reply, fmt.Errorf("kernel: short BR_ERROR payload")
 			}
 			code := int32(binary.LittleEndian.Uint32(buf[pos:]))
 			return commands, reply, fmt.Errorf("kernel: BR_ERROR %d", code)
+		case BRIncRefs, BRAcquire, BRRelease, BRDecRefs:
+			if len(buf[pos:]) < 16 {
+				return commands, reply, fmt.Errorf("kernel: short ptr/cookie payload for %#x", cmd)
+			}
+			ptr := uintptr(binary.LittleEndian.Uint64(buf[pos:]))
+			cookie := uintptr(binary.LittleEndian.Uint64(buf[pos+8:]))
+			pos += 16
+
+			switch cmd {
+			case BRIncRefs:
+				if err := d.WritePtrCookieCommand(BCIncRefsDone, ptr, cookie); err != nil {
+					return commands, reply, err
+				}
+			case BRAcquire:
+				if err := d.WritePtrCookieCommand(BCAcquireDone, ptr, cookie); err != nil {
+					return commands, reply, err
+				}
+			}
+		case BRDeadBinder, BRClearDeathNotificationDone:
+			if len(buf[pos:]) < 8 {
+				return commands, reply, fmt.Errorf("kernel: short cookie payload for %#x", cmd)
+			}
+			cookie := uintptr(binary.LittleEndian.Uint64(buf[pos:]))
+			pos += 8
+
+			switch cmd {
+			case BRDeadBinder:
+				if d.deaths != nil {
+					d.deaths.NotifyDead(cookie)
+				}
+				if err := d.DeadBinderDone(cookie); err != nil {
+					return commands, reply, err
+				}
+			case BRClearDeathNotificationDone:
+				if d.deaths != nil {
+					d.deaths.NotifyCleared(cookie)
+				}
+			}
 		case BRReply:
 			if len(buf[pos:]) < binderTransactionDataSize {
 				return commands, reply, fmt.Errorf("kernel: short BR_REPLY payload: have %d want %d", len(buf[pos:]), binderTransactionDataSize)
@@ -128,28 +172,28 @@ func parseDriverResponses(buf []byte) ([]uint32, *BinderTransactionData, error) 
 	return commands, reply, nil
 }
 
-func copyReplyPayload(reply *BinderTransactionData) ([]byte, []api.ParcelObject, error) {
-	if reply == nil || reply.DataSize == 0 {
+func copyTransactionPayload(tx *BinderTransactionData) ([]byte, []api.ParcelObject, error) {
+	if tx == nil || tx.DataSize == 0 {
 		return nil, nil, nil
 	}
-	if reply.DataBuffer == 0 {
-		return nil, nil, fmt.Errorf("kernel: reply buffer pointer is nil for %d bytes", reply.DataSize)
+	if tx.DataBuffer == 0 {
+		return nil, nil, fmt.Errorf("kernel: transaction buffer pointer is nil for %d bytes", tx.DataSize)
 	}
 
-	size := int(reply.DataSize)
-	if uint64(size) != reply.DataSize {
-		return nil, nil, fmt.Errorf("kernel: reply payload too large: %d", reply.DataSize)
+	size := int(tx.DataSize)
+	if uint64(size) != tx.DataSize {
+		return nil, nil, fmt.Errorf("kernel: transaction payload too large: %d", tx.DataSize)
 	}
 
-	src := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(reply.DataBuffer))), size)
+	src := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(tx.DataBuffer))), size)
 	out := make([]byte, len(src))
 	copy(out, src)
 
-	if reply.OffsetsSize == 0 {
+	if tx.OffsetsSize == 0 {
 		return out, nil, nil
 	}
 
-	objects, err := parseReplyObjects(out, reply)
+	objects, err := parseTransactionObjects(out, tx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,6 +217,22 @@ func commandNames(commands []uint32) []string {
 			names = append(names, "BR_NOOP")
 		case BRTransactionComplete:
 			names = append(names, "BR_TRANSACTION_COMPLETE")
+		case BRIncRefs:
+			names = append(names, "BR_INCREFS")
+		case BRAcquire:
+			names = append(names, "BR_ACQUIRE")
+		case BRRelease:
+			names = append(names, "BR_RELEASE")
+		case BRDecRefs:
+			names = append(names, "BR_DECREFS")
+		case BRSpawnLooper:
+			names = append(names, "BR_SPAWN_LOOPER")
+		case BRFinished:
+			names = append(names, "BR_FINISHED")
+		case BRDeadBinder:
+			names = append(names, "BR_DEAD_BINDER")
+		case BRClearDeathNotificationDone:
+			names = append(names, "BR_CLEAR_DEATH_NOTIFICATION_DONE")
 		case BRReply:
 			names = append(names, "BR_REPLY")
 		case BRError:
@@ -188,27 +248,27 @@ func commandNames(commands []uint32) []string {
 	return names
 }
 
-func parseReplyObjects(payload []byte, reply *BinderTransactionData) ([]api.ParcelObject, error) {
-	if reply == nil || reply.OffsetsSize == 0 {
+func parseTransactionObjects(payload []byte, tx *BinderTransactionData) ([]api.ParcelObject, error) {
+	if tx == nil || tx.OffsetsSize == 0 {
 		return nil, nil
 	}
-	if reply.DataOffsets == 0 {
-		return nil, fmt.Errorf("kernel: reply offsets pointer is nil for %d bytes", reply.OffsetsSize)
+	if tx.DataOffsets == 0 {
+		return nil, fmt.Errorf("kernel: transaction offsets pointer is nil for %d bytes", tx.OffsetsSize)
 	}
-	if reply.OffsetsSize%8 != 0 {
-		return nil, fmt.Errorf("kernel: invalid reply offsets size %d", reply.OffsetsSize)
-	}
-
-	offsetsSize := int(reply.OffsetsSize)
-	if uint64(offsetsSize) != reply.OffsetsSize {
-		return nil, fmt.Errorf("kernel: reply offsets too large: %d", reply.OffsetsSize)
+	if tx.OffsetsSize%8 != 0 {
+		return nil, fmt.Errorf("kernel: invalid transaction offsets size %d", tx.OffsetsSize)
 	}
 
-	offsetSrc := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(reply.DataOffsets))), offsetsSize)
+	offsetsSize := int(tx.OffsetsSize)
+	if uint64(offsetsSize) != tx.OffsetsSize {
+		return nil, fmt.Errorf("kernel: transaction offsets too large: %d", tx.OffsetsSize)
+	}
+
+	offsetSrc := unsafe.Slice((*byte)(unsafe.Pointer(uintptr(tx.DataOffsets))), offsetsSize)
 	objects := make([]api.ParcelObject, 0, offsetsSize/8)
 	for pos := 0; pos < len(offsetSrc); pos += 8 {
 		offset := binary.LittleEndian.Uint64(offsetSrc[pos:])
-		obj, err := parseReplyObject(payload, offset)
+		obj, err := parseTransactionObject(payload, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +277,7 @@ func parseReplyObjects(payload []byte, reply *BinderTransactionData) ([]api.Parc
 	return objects, nil
 }
 
-func parseReplyObject(payload []byte, offset uint64) (api.ParcelObject, error) {
+func parseTransactionObject(payload []byte, offset uint64) (api.ParcelObject, error) {
 	start := int(offset)
 	if uint64(start) != offset {
 		return api.ParcelObject{}, fmt.Errorf("kernel: reply object offset out of range: %d", offset)
@@ -249,6 +309,20 @@ func parseReplyObject(payload []byte, offset uint64) (api.ParcelObject, error) {
 	return obj, nil
 }
 
+func setTransactionPayload(tx *BinderTransactionData, payload []byte, offsets []uint64) {
+	if tx == nil {
+		return
+	}
+	if len(payload) > 0 {
+		tx.DataSize = uint64(len(payload))
+		tx.DataBuffer = uint64(uintptr(unsafe.Pointer(&payload[0])))
+	}
+	if len(offsets) > 0 {
+		tx.OffsetsSize = uint64(len(offsets) * 8)
+		tx.DataOffsets = uint64(uintptr(unsafe.Pointer(&offsets[0])))
+	}
+}
+
 func (d *DriverManager) acquireParcelObjects(objects []api.ParcelObject) error {
 	for _, obj := range objects {
 		if obj.Kind != api.ObjectStrongBinder {
@@ -259,4 +333,12 @@ func (d *DriverManager) acquireParcelObjects(objects []api.ParcelObject) error {
 		}
 	}
 	return nil
+}
+
+func statusReplyError(payload []byte) error {
+	if len(payload) < 4 {
+		return ErrFailedReply
+	}
+	code := int32(binary.LittleEndian.Uint32(payload[:4]))
+	return fmt.Errorf("kernel: transaction status %d", code)
 }

@@ -227,6 +227,35 @@ android_start_emulator() {
   android_wait_for_boot "${serial}"
 }
 
+android_root_device() {
+  local serial="$1"
+  local uid=""
+  local timeout_secs="${ANDROID_ROOT_TIMEOUT_SECS:-60}"
+  local start_ts=""
+
+  if ! "${ADB_BIN}" -s "${serial}" root >/dev/null 2>&1; then
+    android_log "adb root is unavailable on ${serial}; continuing without root"
+    return 0
+  fi
+
+  "${ADB_BIN}" -s "${serial}" wait-for-device >/dev/null
+  start_ts="$(date +%s)"
+
+  while true; do
+    uid="$("${ADB_BIN}" -s "${serial}" shell id -u 2>/dev/null | tr -d '\r')"
+    if [ "${uid}" = "0" ]; then
+      android_log "adb root enabled on ${serial}"
+      return 0
+    fi
+
+    if [ $(( $(date +%s) - start_ts )) -ge "${timeout_secs}" ]; then
+      android_log "adb root did not become active on ${serial} within ${timeout_secs}s; continuing without adb root"
+      return 0
+    fi
+    sleep 1
+  done
+}
+
 android_stop_emulator() {
   local serial="$1"
 

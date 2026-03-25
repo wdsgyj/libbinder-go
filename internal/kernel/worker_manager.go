@@ -4,7 +4,7 @@ import "fmt"
 
 // WorkerManager tracks the thread-bound workers used by the kernel Binder backend.
 type WorkerManager struct {
-	Driver *DriverManager
+	Backend *Backend
 
 	Loopers []*LooperWorker
 	Clients []*ClientWorker
@@ -12,8 +12,8 @@ type WorkerManager struct {
 	started bool
 }
 
-func NewWorkerManager(driver *DriverManager) *WorkerManager {
-	return &WorkerManager{Driver: driver}
+func NewWorkerManager(backend *Backend) *WorkerManager {
+	return &WorkerManager{Backend: backend}
 }
 
 func (m *WorkerManager) Start(opts StartOptions) error {
@@ -30,7 +30,7 @@ func (m *WorkerManager) Start(opts StartOptions) error {
 
 	m.Loopers = make([]*LooperWorker, 0, opts.LooperWorkers)
 	for i := 0; i < opts.LooperWorkers; i++ {
-		worker := NewLooperWorker(fmt.Sprintf("binder-looper-%d", i))
+		worker := NewLooperWorker(fmt.Sprintf("binder-looper-%d", i), m.Backend)
 		if err := worker.Start(); err != nil {
 			_ = m.Close()
 			return err
@@ -40,7 +40,7 @@ func (m *WorkerManager) Start(opts StartOptions) error {
 
 	m.Clients = make([]*ClientWorker, 0, opts.ClientWorkers)
 	for i := 0; i < opts.ClientWorkers; i++ {
-		worker := NewClientWorker(fmt.Sprintf("binder-client-%d", i), m.Driver)
+		worker := NewClientWorker(fmt.Sprintf("binder-client-%d", i), m.Backend.Driver)
 		if err := worker.Start(); err != nil {
 			_ = m.Close()
 			return err

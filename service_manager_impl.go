@@ -13,6 +13,7 @@ import (
 const (
 	serviceManagerDescriptor  = "android.os.IServiceManager"
 	checkServiceTransactionID = kernel.FirstCallTransaction + 2
+	addServiceTransactionID   = kernel.FirstCallTransaction + 4
 	waitServicePollInterval   = 200 * time.Millisecond
 )
 
@@ -71,7 +72,35 @@ func (m *serviceManager) WaitService(ctx context.Context, name string) (api.Bind
 }
 
 func (m *serviceManager) AddService(ctx context.Context, name string, handler api.Handler, opts ...api.AddServiceOption) error {
-	return api.ErrUnsupported
+	resolved := api.ResolveAddServiceOptions(opts...)
+
+	node, err := m.conn.registerLocalNode(handler, resolved.Serial)
+	if err != nil {
+		return err
+	}
+
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return err
+	}
+	if err := data.WriteString(name); err != nil {
+		return err
+	}
+	if err := data.WriteStrongBinderLocal(node.ID, node.ID); err != nil {
+		return err
+	}
+	if err := data.WriteBool(resolved.AllowIsolated); err != nil {
+		return err
+	}
+	if err := data.WriteInt32(int32(resolved.DumpFlags)); err != nil {
+		return err
+	}
+
+	reply, err := m.target.Transact(ctx, addServiceTransactionID, data, api.FlagNone)
+	if err != nil {
+		return err
+	}
+	return decodeStatusReply(reply)
 }
 
 func (m *serviceManager) call(ctx context.Context, code uint32, name string) (*api.Parcel, error) {
@@ -91,19 +120,31 @@ func (m *serviceManager) call(ctx context.Context, code uint32, name string) (*a
 		return nil, api.ErrBadParcelable
 	}
 
+	if err := decodeStatusReply(reply); err != nil {
+		return nil, err
+	}
+
+	return reply, nil
+}
+
+func decodeStatusReply(reply *api.Parcel) error {
+	if reply == nil {
+		return api.ErrBadParcelable
+	}
+
 	status, err := protocol.ReadStatus(reply)
 	if err != nil {
-		return nil, mapRuntimeError(err)
+		return mapRuntimeError(err)
 	}
 	if status.TransportErr != nil {
-		return nil, mapRuntimeError(status.TransportErr)
+		return mapRuntimeError(status.TransportErr)
 	}
 	if status.Remote != nil {
-		return nil, &api.RemoteException{
+		return &api.RemoteException{
 			Code:    status.Remote.Code,
 			Message: status.Remote.Message,
 		}
 	}
 
-	return reply, nil
+	return nil
 }

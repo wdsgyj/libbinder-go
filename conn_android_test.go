@@ -5,10 +5,13 @@ package libbindergo
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	api "libbinder-go/binder"
+	"libbinder-go/internal/kernel"
 )
 
 func TestContextManagerDescriptorOnAndroid(t *testing.T) {
@@ -68,6 +71,77 @@ func TestServiceManagerWaitServiceExistingOnAndroid(t *testing.T) {
 	}
 	if service == nil {
 		t.Fatal("WaitService(activity) returned nil service")
+	}
+}
+
+func TestServiceManagerAddServiceAndTransactOnAndroid(t *testing.T) {
+	conn := mustOpenConn(t)
+	defer closeConn(t, conn)
+
+	serviceName := fmt.Sprintf("libbinder.go.test.echo.%d", time.Now().UnixNano())
+	handler := api.StaticHandler{
+		DescriptorName: "libbinder.go.test.IEcho",
+		Handle: func(ctx context.Context, code uint32, data *api.Parcel) (*api.Parcel, error) {
+			if code != kernel.FirstCallTransaction {
+				return nil, fmt.Errorf("unexpected code %d", code)
+			}
+
+			msg, err := data.ReadString()
+			if err != nil {
+				return nil, err
+			}
+
+			reply := api.NewParcel()
+			if err := reply.WriteString("echo:" + msg); err != nil {
+				return nil, err
+			}
+			return reply, nil
+		},
+	}
+
+	if err := conn.ServiceManager().AddService(context.Background(), serviceName, handler); err != nil {
+		var remoteErr *api.RemoteException
+		if errors.As(err, &remoteErr) && remoteErr.Code == api.ExceptionSecurity && strings.Contains(remoteErr.Message, "SELinux denied") {
+			t.Skipf("stock emulator denies addService for test binaries: %v", err)
+		}
+		t.Fatalf("AddService(%s): %v", serviceName, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	service, err := conn.ServiceManager().WaitService(ctx, serviceName)
+	if err != nil {
+		t.Fatalf("WaitService(%s): %v", serviceName, err)
+	}
+
+	desc, err := service.Descriptor(context.Background())
+	if err != nil {
+		t.Fatalf("service.Descriptor: %v", err)
+	}
+	if desc != handler.DescriptorName {
+		t.Fatalf("Descriptor = %q, want %q", desc, handler.DescriptorName)
+	}
+
+	req := api.NewParcel()
+	if err := req.WriteString("ping"); err != nil {
+		t.Fatalf("req.WriteString: %v", err)
+	}
+
+	reply, err := service.Transact(context.Background(), kernel.FirstCallTransaction, req, api.FlagNone)
+	if err != nil {
+		t.Fatalf("service.Transact: %v", err)
+	}
+	if reply == nil {
+		t.Fatal("service.Transact returned nil reply")
+	}
+
+	got, err := reply.ReadString()
+	if err != nil {
+		t.Fatalf("reply.ReadString: %v", err)
+	}
+	if got != "echo:ping" {
+		t.Fatalf("reply.ReadString = %q, want %q", got, "echo:ping")
 	}
 }
 

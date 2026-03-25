@@ -131,3 +131,61 @@ func (d *DriverManager) AcquireHandle(handle uint32) error {
 	}
 	return d.WriteHandleCommand(BCAcquire, handle)
 }
+
+func (d *DriverManager) WriteHandleCookieCommand(cmd uint32, handle uint32, cookie uintptr) error {
+	payload := make([]byte, binderHandleCookieSize)
+	binary.LittleEndian.PutUint32(payload[:4], handle)
+	binary.LittleEndian.PutUint64(payload[4:], uint64(cookie))
+
+	bwr, err := d.WriteCommand(cmd, payload, nil)
+	if err != nil {
+		return err
+	}
+	if want := uint64(4 + len(payload)); bwr.WriteConsumed != want {
+		return fmt.Errorf("kernel: handle/cookie command %#x consumed %d bytes, want %d", cmd, bwr.WriteConsumed, want)
+	}
+	return nil
+}
+
+func (d *DriverManager) RequestDeathNotification(handle uint32, cookie uintptr) error {
+	return d.WriteHandleCookieCommand(BCRequestDeathNotification, handle, cookie)
+}
+
+func (d *DriverManager) ClearDeathNotification(handle uint32, cookie uintptr) error {
+	return d.WriteHandleCookieCommand(BCClearDeathNotification, handle, cookie)
+}
+
+func (d *DriverManager) WritePtrCookieCommand(cmd uint32, ptr uintptr, cookie uintptr) error {
+	payload := BinderPtrCookie{
+		Ptr:    uint64(ptr),
+		Cookie: uint64(cookie),
+	}
+
+	bwr, err := d.WriteCommand(cmd, unsafe.Slice((*byte)(unsafe.Pointer(&payload)), unsafe.Sizeof(payload)), nil)
+	runtime.KeepAlive(payload)
+	if err != nil {
+		return err
+	}
+	if want := uint64(4 + unsafe.Sizeof(payload)); bwr.WriteConsumed != want {
+		return fmt.Errorf("kernel: ptr/cookie command %#x consumed %d bytes, want %d", cmd, bwr.WriteConsumed, want)
+	}
+	return nil
+}
+
+func (d *DriverManager) WriteCookieCommand(cmd uint32, cookie uintptr) error {
+	payload := make([]byte, 8)
+	binary.LittleEndian.PutUint64(payload, uint64(cookie))
+
+	bwr, err := d.WriteCommand(cmd, payload, nil)
+	if err != nil {
+		return err
+	}
+	if want := uint64(4 + len(payload)); bwr.WriteConsumed != want {
+		return fmt.Errorf("kernel: cookie command %#x consumed %d bytes, want %d", cmd, bwr.WriteConsumed, want)
+	}
+	return nil
+}
+
+func (d *DriverManager) DeadBinderDone(cookie uintptr) error {
+	return d.WriteCookieCommand(BCDeadBinderDone, cookie)
+}

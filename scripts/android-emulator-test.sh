@@ -58,6 +58,8 @@ Environment:
   ANDROID_EMULATOR_PORT         Emulator console/adb port. Default: 5560.
   ANDROID_SERIAL                Existing device/emulator serial to reuse.
   ANDROID_SKIP_SDK_INSTALL      Set to 1 to forbid automatic sdkmanager installs.
+  ANDROID_ADB_ROOT              Set to 1 to run tests after `adb root`. Default: 1.
+  ANDROID_TEST_AS_ROOT          Set to 1 to execute test binaries via `su 0` when available. Default: 1.
   ANDROID_HEADLESS              Set to 0 to show the emulator window.
   ANDROID_WIPE_DATA             Set to 1 to boot with -wipe-data.
   ANDROID_KEEP_EMULATOR         Set to 1 to leave the emulator running.
@@ -104,6 +106,10 @@ EMULATOR_LOG="${TMP_DIR}/emulator.log"
 
 android_start_emulator "${ANDROID_SERIAL}" "${ANDROID_EMULATOR_PORT}" "${EMULATOR_LOG}"
 
+if [ "${ANDROID_ADB_ROOT:-1}" = "1" ]; then
+  android_root_device "${ANDROID_SERIAL}"
+fi
+
 android_log "cross-compiling module for android/arm64"
 (
   cd "${ROOT_DIR}"
@@ -144,7 +150,12 @@ for pkg in "${TEST_IMPORT_PATHS[@]}"; do
   "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "chmod 755 $(android_shell_quote "${remote_test_bin}")" >/dev/null
 
   remote_cmd="cd $(android_shell_quote "${REMOTE_TEST_DIR}") && exec $(android_join_shell_words "./${test_name}" "${TEST_BINARY_ARGS[@]}")"
-  android_log "running ${pkg} on ${ANDROID_SERIAL}"
+  if [ "${ANDROID_TEST_AS_ROOT:-1}" = "1" ] && "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "command -v su >/dev/null 2>&1"; then
+    remote_cmd="exec su 0 sh -c $(android_shell_quote "${remote_cmd}")"
+    android_log "running ${pkg} on ${ANDROID_SERIAL} via su 0"
+  else
+    android_log "running ${pkg} on ${ANDROID_SERIAL}"
+  fi
   "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "${remote_cmd}"
 done
 

@@ -44,14 +44,6 @@ func (w *ClientWorker) Start() error {
 		defer runtime.UnlockOSThread()
 		defer close(w.done)
 
-		if w.Driver != nil {
-			if err := w.Driver.EnterLooper(); err != nil {
-				w.State.LastErr = err
-				ready <- err
-				return
-			}
-		}
-
 		w.State.Bound = true
 		ready <- nil
 

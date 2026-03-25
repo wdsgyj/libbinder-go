@@ -26,6 +26,9 @@ type Backend struct {
 	Driver  *DriverManager
 	Process *ProcessState
 	Workers *WorkerManager
+
+	locals *localRegistry
+	deaths *deathRegistry
 }
 
 func NewBackend(driverPath string) *Backend {
@@ -34,12 +37,15 @@ func NewBackend(driverPath string) *Backend {
 	}
 
 	driver := NewDriverManager(driverPath)
-
-	return &Backend{
+	backend := &Backend{
 		Driver:  driver,
 		Process: NewProcessState(driverPath),
-		Workers: NewWorkerManager(driver),
+		locals:  newLocalRegistry(),
 	}
+	backend.deaths = newDeathRegistry(backend.requestDeathNotification)
+	driver.deaths = backend.deaths
+	backend.Workers = NewWorkerManager(backend)
+	return backend
 }
 
 func (b *Backend) Start(opts StartOptions) error {
@@ -57,8 +63,11 @@ func (b *Backend) Start(opts StartOptions) error {
 }
 
 func (b *Backend) Close() error {
-	workerErr := b.Workers.Close()
+	if b.deaths != nil {
+		b.deaths.Close()
+	}
 	driverErr := b.Driver.Close()
+	workerErr := b.Workers.Close()
 	b.Process.MarkStopped()
 
 	if workerErr != nil {
@@ -78,13 +87,14 @@ func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32
 	}
 
 	var request []byte
+	var requestOffsets []uint64
 	if data != nil {
-		request = data.Bytes()
+		request, requestOffsets = data.KernelWireData()
 	}
 
 	var reply *api.Parcel
 	err = client.Do(ctx, func(state *ThreadState) error {
-		replyBytes, replyObjects, _, callErr := b.Driver.TransactHandleParcel(handle, code, request, flags)
+		replyBytes, replyObjects, _, callErr := b.Driver.TransactHandleParcel(handle, code, request, requestOffsets, flags)
 		state.OutBuffer = append(state.OutBuffer[:0], request...)
 		if callErr != nil {
 			state.InBuffer = state.InBuffer[:0]
@@ -121,5 +131,27 @@ func (b *Backend) AcquireHandle(ctx context.Context, handle uint32) error {
 
 	return client.Do(ctx, func(_ *ThreadState) error {
 		return b.Driver.AcquireHandle(handle)
+	})
+}
+
+func (b *Backend) WatchDeath(ctx context.Context, handle uint32) (api.Subscription, error) {
+	if b == nil || b.deaths == nil {
+		return nil, ErrUnsupportedPlatform
+	}
+	return b.deaths.Watch(ctx, handle)
+}
+
+func (b *Backend) requestDeathNotification(ctx context.Context, handle uint32, cookie uintptr) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	client, err := b.Workers.Client()
+	if err != nil {
+		return err
+	}
+
+	return client.Do(ctx, func(_ *ThreadState) error {
+		return b.Driver.RequestDeathNotification(handle, cookie)
 	})
 }

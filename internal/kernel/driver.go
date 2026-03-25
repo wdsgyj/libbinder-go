@@ -21,6 +21,7 @@ type DriverManager struct {
 	Path     string
 	MmapSize int
 
+	deaths *deathRegistry
 	file   *os.File
 	mmap   []byte
 	opened bool

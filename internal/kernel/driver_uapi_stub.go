@@ -40,6 +40,30 @@ func (d *DriverManager) AcquireHandle(handle uint32) error {
 	return ErrUnsupportedPlatform
 }
 
+func (d *DriverManager) WriteHandleCookieCommand(cmd uint32, handle uint32, cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) RequestDeathNotification(handle uint32, cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) ClearDeathNotification(handle uint32, cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) WritePtrCookieCommand(cmd uint32, ptr uintptr, cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) WriteCookieCommand(cmd uint32, cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
+func (d *DriverManager) DeadBinderDone(cookie uintptr) error {
+	return ErrUnsupportedPlatform
+}
+
 func (d *DriverManager) TransactHandle(handle uint32, code uint32, payload []byte, flags api.Flags) ([]byte, []uint32, error) {
 	return nil, nil, ErrUnsupportedPlatform
 }

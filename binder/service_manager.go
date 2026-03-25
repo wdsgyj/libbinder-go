@@ -61,3 +61,14 @@ func DefaultAddServiceOptions() AddServiceOptions {
 		DumpFlags: DumpPriorityDefault,
 	}
 }
+
+func ResolveAddServiceOptions(opts ...AddServiceOption) AddServiceOptions {
+	resolved := DefaultAddServiceOptions()
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		opt.applyAddService(&resolved)
+	}
+	return resolved
+}

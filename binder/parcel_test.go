@@ -305,3 +305,31 @@ func TestParcelWriteInterfaceToken(t *testing.T) {
 		t.Fatalf("interface token header = %v, want SYST in little-endian", got[8:12])
 	}
 }
+
+func TestParcelWriteStrongBinderLocalWireData(t *testing.T) {
+	p := NewParcel()
+
+	if err := p.WriteStrongBinderLocal(0x11, 0x22); err != nil {
+		t.Fatalf("WriteStrongBinderLocal: %v", err)
+	}
+
+	payload, offsets := p.KernelWireData()
+	if len(payload) != flatObjectSize+4 {
+		t.Fatalf("len(payload) = %d, want %d", len(payload), flatObjectSize+4)
+	}
+	if len(offsets) != 1 || offsets[0] != 0 {
+		t.Fatalf("offsets = %v, want [0]", offsets)
+	}
+	if got := binary.LittleEndian.Uint32(payload[0:4]); got != flatTypeBinder {
+		t.Fatalf("object type = %#x, want %#x", got, flatTypeBinder)
+	}
+	if got := binary.LittleEndian.Uint64(payload[8:16]); got != 0x11 {
+		t.Fatalf("binder ptr = %#x, want %#x", got, uint64(0x11))
+	}
+	if got := binary.LittleEndian.Uint64(payload[16:24]); got != 0x22 {
+		t.Fatalf("cookie = %#x, want %#x", got, uint64(0x22))
+	}
+	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != systemStabilityLevel {
+		t.Fatalf("stability = %d, want %d", got, systemStabilityLevel)
+	}
+}

@@ -38,6 +38,9 @@ func (b *remoteBinder) Transact(ctx context.Context, code uint32, data *api.Parc
 	return reply, nil
 }
 
-func (b *remoteBinder) WatchDeath(_ context.Context) (api.Subscription, error) {
-	return nil, api.ErrUnsupported
+func (b *remoteBinder) WatchDeath(ctx context.Context) (api.Subscription, error) {
+	if b == nil || b.conn == nil {
+		return nil, api.ErrUnsupported
+	}
+	return b.conn.watchDeath(ctx, b.handle)
 }

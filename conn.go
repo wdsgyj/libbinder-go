@@ -124,3 +124,24 @@ func (c *Conn) markHandleAcquired(handle uint32) {
 	}
 	c.acquiredMu.Unlock()
 }
+
+func (c *Conn) registerLocalNode(handler api.Handler, serial bool) (runtime.LocalNodeRef, error) {
+	if c == nil || c.rt == nil {
+		return runtime.LocalNodeRef{}, api.ErrUnsupported
+	}
+	return c.rt.RegisterLocalNode(handler, serial)
+}
+
+func (c *Conn) watchDeath(ctx context.Context, handle uint32) (api.Subscription, error) {
+	if c == nil || c.rt == nil || c.rt.Kernel == nil {
+		return nil, api.ErrUnsupported
+	}
+	if err := c.ensureHandleAcquired(ctx, handle); err != nil {
+		return nil, err
+	}
+	sub, err := c.rt.Kernel.WatchDeath(ctx, handle)
+	if err != nil {
+		return nil, mapRuntimeError(err)
+	}
+	return sub, nil
+}
