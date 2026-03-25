@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"unicode/utf16"
 )
 
@@ -255,6 +256,34 @@ func (p *Parcel) WriteBool(v bool) error {
 	return p.WriteInt32(0)
 }
 
+// WriteByte writes an AIDL byte value.
+func (p *Parcel) WriteByte(v int8) error {
+	return p.writeBlock(1, func(dst []byte) {
+		dst[0] = byte(v)
+	})
+}
+
+// WriteChar writes an AIDL char value.
+func (p *Parcel) WriteChar(v uint16) error {
+	return p.writeBlock(2, func(dst []byte) {
+		binary.LittleEndian.PutUint16(dst, v)
+	})
+}
+
+// WriteFloat32 writes an AIDL float value.
+func (p *Parcel) WriteFloat32(v float32) error {
+	return p.writeBlock(4, func(dst []byte) {
+		binary.LittleEndian.PutUint32(dst, math.Float32bits(v))
+	})
+}
+
+// WriteFloat64 writes an AIDL double value.
+func (p *Parcel) WriteFloat64(v float64) error {
+	return p.writeBlock(8, func(dst []byte) {
+		binary.LittleEndian.PutUint64(dst, math.Float64bits(v))
+	})
+}
+
 func (p *Parcel) WriteString(v string) error {
 	return p.WriteNullableString(&v)
 }
@@ -396,6 +425,42 @@ func (p *Parcel) ReadBool() (bool, error) {
 		return false, err
 	}
 	return v != 0, nil
+}
+
+// ReadByte reads an AIDL byte value.
+func (p *Parcel) ReadByte() (int8, error) {
+	block, err := p.readBlock(1)
+	if err != nil {
+		return 0, err
+	}
+	return int8(block[0]), nil
+}
+
+// ReadChar reads an AIDL char value.
+func (p *Parcel) ReadChar() (uint16, error) {
+	block, err := p.readBlock(2)
+	if err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint16(block), nil
+}
+
+// ReadFloat32 reads an AIDL float value.
+func (p *Parcel) ReadFloat32() (float32, error) {
+	block, err := p.readBlock(4)
+	if err != nil {
+		return 0, err
+	}
+	return math.Float32frombits(binary.LittleEndian.Uint32(block)), nil
+}
+
+// ReadFloat64 reads an AIDL double value.
+func (p *Parcel) ReadFloat64() (float64, error) {
+	block, err := p.readBlock(8)
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(binary.LittleEndian.Uint64(block)), nil
 }
 
 func (p *Parcel) ReadString() (string, error) {

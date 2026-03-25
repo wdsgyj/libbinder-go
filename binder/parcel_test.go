@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"testing"
 )
 
@@ -27,6 +28,18 @@ func TestParcelScalarsRoundTrip(t *testing.T) {
 	}
 	if err := p.WriteBool(false); err != nil {
 		t.Fatalf("WriteBool(false): %v", err)
+	}
+	if err := p.WriteByte(-12); err != nil {
+		t.Fatalf("WriteByte: %v", err)
+	}
+	if err := p.WriteChar('A'); err != nil {
+		t.Fatalf("WriteChar: %v", err)
+	}
+	if err := p.WriteFloat32(3.5); err != nil {
+		t.Fatalf("WriteFloat32: %v", err)
+	}
+	if err := p.WriteFloat64(-9.25); err != nil {
+		t.Fatalf("WriteFloat64: %v", err)
 	}
 
 	if err := p.SetPosition(0); err != nil {
@@ -79,6 +92,37 @@ func TestParcelScalarsRoundTrip(t *testing.T) {
 	}
 	if gotFalse {
 		t.Fatal("ReadBool(false) = true, want false")
+	}
+	gotByte, err := p.ReadByte()
+	if err != nil {
+		t.Fatalf("ReadByte: %v", err)
+	}
+	if gotByte != -12 {
+		t.Fatalf("ReadByte = %d, want -12", gotByte)
+	}
+
+	gotChar, err := p.ReadChar()
+	if err != nil {
+		t.Fatalf("ReadChar: %v", err)
+	}
+	if gotChar != 'A' {
+		t.Fatalf("ReadChar = %d, want %d", gotChar, 'A')
+	}
+
+	gotF32, err := p.ReadFloat32()
+	if err != nil {
+		t.Fatalf("ReadFloat32: %v", err)
+	}
+	if math.Abs(float64(gotF32-3.5)) > 1e-6 {
+		t.Fatalf("ReadFloat32 = %f, want 3.5", gotF32)
+	}
+
+	gotF64, err := p.ReadFloat64()
+	if err != nil {
+		t.Fatalf("ReadFloat64: %v", err)
+	}
+	if math.Abs(gotF64-(-9.25)) > 1e-9 {
+		t.Fatalf("ReadFloat64 = %f, want -9.25", gotF64)
 	}
 
 	if remaining := p.Remaining(); remaining != 0 {

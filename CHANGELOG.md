@@ -2,6 +2,92 @@
 
 本文件记录当前仓库的重要阶段性产出。
 
+## 0.0.3 - 2026-03-25
+
+本版本完成了“AIDL 全功能生成器”的基础要求收敛：阶段 0 已冻结，阶段 1 到阶段 3 已具备最小实现骨架，并且对应测试已在宿主机与 Android aarch64 模拟器上通过。
+
+### Added
+
+- 增加 AIDL 前端基础设施：
+  - `internal/aidl/ast`
+  - `internal/aidl/parser`
+  - `internal/aidl/resolve`
+  - `internal/aidl/ir`
+- 增加最小 `aidlgen` CLI：
+  - `cmd/aidlgen`
+  - 当前支持输出 AST JSON 和 summary IR JSON
+- 增加 `Parcel` 基础类型补齐：
+  - `byte`
+  - `char`
+  - `float`
+  - `double`
+- 增加 AIDL 集合 codec helper：
+  - `WriteSlice` / `ReadSlice`
+  - `WriteFixedSlice` / `ReadFixedSlice`
+- 增加 AIDL 规划与规范文档：
+  - `doc/libbinder-go-aidl-full-plan.md`
+  - `doc/libbinder-go-aidl-support-matrix.md`
+  - `doc/libbinder-go-aidl-go-backend-mapping.md`
+  - `doc/libbinder-go-aidl-custom-parcelable-adapter.md`
+
+### Changed
+
+- 将 AIDL 生成器目标从“功能全集”口号细化为明确的分阶段计划，并冻结了 phase-0 的三类关键规范：
+  - support matrix
+  - Go backend mapping
+  - custom parcelable 适配路径
+- `internal/aidl/parser` 现在可稳定解析下面这些核心构造：
+  - `package`
+  - `import`
+  - `interface`
+  - `oneway`
+  - `const`
+  - structured / non-structured `parcelable`
+  - `enum`
+  - `union`
+  - nested type
+  - `T[]`
+  - `T[N]`
+  - `List<T>`
+  - annotation 与命名参数
+- `internal/aidl/resolve` 增加最小语义校验，当前覆盖重复顶层声明与重复接口成员。
+- `internal/aidl/ir` 增加最小 lowering，当前可将主要声明降为 generator 可消费的摘要级 IR。
+
+### Testing
+
+- 增加 `Parcel` 单元测试覆盖：
+  - 新增标量 `byte/char/float/double`
+  - 可空动态数组与 fixed-size array helper
+- 增加 AIDL 前端与 CLI 单元测试覆盖：
+  - parser 对 interface/nested type/annotation/array 的解析
+  - resolve 重复声明诊断
+  - IR lowering
+  - `aidlgen` AST / summary 输出
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
+### Current Phase
+
+- AIDL 全功能计划中的阶段 0 已完成。
+- 阶段 1 到阶段 3 已具备最小基础实现。
+- 当前下一步主阻塞项是阶段 4：
+  - Binder object
+  - interface / callback
+  - `IBinder`
+  - `FileDescriptor`
+  - `ParcelFileDescriptor`
+
+### Current Boundaries
+
+- 当前 `aidlgen` 还不是正式 Go 代码生成器，只提供 parser/IR 调试输出。
+- typed IR、正式 proxy/stub 生成、structured parcelable codegen、enum/union codegen、custom parcelable 接入、stable AIDL 兼容语义仍未实现。
+- stock Android emulator 上的 `AddService` 仍可能受 SELinux / service policy 限制，相关集成测试继续按已知受限场景跳过。
+
 ## 0.0.2 - 2026-03-25
 
 相对 `0.0.1`，本版本主要完成了路线图中的阶段 9 与阶段 10 主体工作，并补充了最小 demo 以及模块/包名规范化调整。
