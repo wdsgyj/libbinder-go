@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	statusUnknownError      int32 = -2147483648
-	statusFailedTransaction int32 = statusUnknownError + 2
+	statusFailedTransaction = api.StatusFailedTransaction
 )
 
 // LooperWorker represents a thread-bound Binder looper worker.
@@ -186,24 +185,30 @@ func (w *LooperWorker) handleTransaction(ctx context.Context, tx *BinderTransact
 	requestBytes, requestObjects, err := copyTransactionPayload(tx)
 	if err != nil {
 		if tx.Flags&TFOneWay == 0 {
-			return w.sendStatusReply(statusFailedTransaction, tx.Flags&TFClearBuf)
+			return w.sendStatusReply(statusCodeFromError(err), tx.Flags&TFClearBuf)
 		}
 		return err
 	}
 	if err := w.Driver.acquireParcelObjects(requestObjects); err != nil {
 		if tx.Flags&TFOneWay == 0 {
-			return w.sendStatusReply(statusFailedTransaction, tx.Flags&TFClearBuf)
+			return w.sendStatusReply(statusCodeFromError(err), tx.Flags&TFClearBuf)
 		}
 		return err
 	}
 
 	request := api.NewParcelWire(requestBytes, requestObjects)
-	reply, err := w.Backend.DispatchLocalTransaction(ctx, tx.CookiePointer(), tx.Code, request, tx.Flags)
+	request.SetBinderResolvers(w.Backend.binderResolver, w.Backend.localResolver)
+	reply, err := w.Backend.dispatchLocalTransaction(ctx, tx.CookiePointer(), tx.Code, request, tx.Flags, transactionMetadata{
+		CallingPID: tx.SenderPID,
+		CallingUID: tx.SenderEUID,
+		Code:       tx.Code,
+		Flags:      tx.Flags,
+	})
 	if tx.Flags&TFOneWay != 0 {
 		return nil
 	}
 	if err != nil {
-		return w.sendStatusReply(statusFailedTransaction, tx.Flags&TFClearBuf)
+		return w.sendStatusReply(statusCodeFromError(err), tx.Flags&TFClearBuf)
 	}
 	return w.sendReply(reply, tx.Flags&TFClearBuf)
 }

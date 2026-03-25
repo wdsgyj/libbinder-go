@@ -1,10 +1,13 @@
 package binder
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
 	"math"
+	"os"
+	"syscall"
 	"testing"
 )
 
@@ -294,6 +297,8 @@ func TestParcelReadErrors(t *testing.T) {
 func TestParcelReadStrongBinderHandle(t *testing.T) {
 	t.Run("object table handle", func(t *testing.T) {
 		payload := make([]byte, flatObjectSize+4)
+		binary.LittleEndian.PutUint32(payload[:4], flatTypeHandle)
+		binary.LittleEndian.PutUint32(payload[8:12], 42)
 		p := NewParcelWire(payload, []ParcelObject{{
 			Kind:   ObjectStrongBinder,
 			Offset: 0,
@@ -348,6 +353,17 @@ func TestParcelWriteInterfaceToken(t *testing.T) {
 	if got[8] != 'T' || got[9] != 'S' || got[10] != 'Y' || got[11] != 'S' {
 		t.Fatalf("interface token header = %v, want SYST in little-endian", got[8:12])
 	}
+
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	descriptor, err := p.ReadInterfaceToken()
+	if err != nil {
+		t.Fatalf("ReadInterfaceToken: %v", err)
+	}
+	if descriptor != "android.os.IServiceManager" {
+		t.Fatalf("ReadInterfaceToken = %q, want android.os.IServiceManager", descriptor)
+	}
 }
 
 func TestParcelWriteStrongBinderLocalWireData(t *testing.T) {
@@ -376,4 +392,347 @@ func TestParcelWriteStrongBinderLocalWireData(t *testing.T) {
 	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != systemStabilityLevel {
 		t.Fatalf("stability = %d, want %d", got, systemStabilityLevel)
 	}
+}
+
+func TestParcelWriteStrongBinderHandleWireData(t *testing.T) {
+	p := NewParcel()
+
+	if err := p.WriteStrongBinderHandle(42); err != nil {
+		t.Fatalf("WriteStrongBinderHandle: %v", err)
+	}
+
+	payload, offsets := p.KernelWireData()
+	if len(payload) != flatObjectSize+4 {
+		t.Fatalf("len(payload) = %d, want %d", len(payload), flatObjectSize+4)
+	}
+	if len(offsets) != 1 || offsets[0] != 0 {
+		t.Fatalf("offsets = %v, want [0]", offsets)
+	}
+	if got := binary.LittleEndian.Uint32(payload[0:4]); got != flatTypeHandle {
+		t.Fatalf("object type = %#x, want %#x", got, flatTypeHandle)
+	}
+	if got := binary.LittleEndian.Uint32(payload[8:12]); got != 42 {
+		t.Fatalf("handle = %#x, want %#x", got, uint32(42))
+	}
+	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != systemStabilityLevel {
+		t.Fatalf("stability = %d, want %d", got, systemStabilityLevel)
+	}
+}
+
+func TestParcelWriteFileDescriptorWireData(t *testing.T) {
+	p := NewParcel()
+
+	if err := p.WriteFileDescriptor(NewFileDescriptor(42)); err != nil {
+		t.Fatalf("WriteFileDescriptor: %v", err)
+	}
+
+	payload, offsets := p.KernelWireData()
+	if len(payload) != flatObjectSize {
+		t.Fatalf("len(payload) = %d, want %d", len(payload), flatObjectSize)
+	}
+	if len(offsets) != 1 || offsets[0] != 0 {
+		t.Fatalf("offsets = %v, want [0]", offsets)
+	}
+	if got := binary.LittleEndian.Uint32(payload[0:4]); got != flatTypeFD {
+		t.Fatalf("object type = %#x, want %#x", got, flatTypeFD)
+	}
+	if got := binary.LittleEndian.Uint32(payload[8:12]); got != 42 {
+		t.Fatalf("fd = %#x, want %#x", got, uint32(42))
+	}
+}
+
+func TestParcelWriteParcelFileDescriptorWireData(t *testing.T) {
+	p := NewParcel()
+
+	if err := p.WriteParcelFileDescriptor(NewParcelFileDescriptor(9)); err != nil {
+		t.Fatalf("WriteParcelFileDescriptor: %v", err)
+	}
+
+	payload, offsets := p.KernelWireData()
+	if len(payload) != 4+flatObjectSize {
+		t.Fatalf("len(payload) = %d, want %d", len(payload), 4+flatObjectSize)
+	}
+	if len(offsets) != 1 || offsets[0] != 4 {
+		t.Fatalf("offsets = %v, want [4]", offsets)
+	}
+	if got := int32(binary.LittleEndian.Uint32(payload[0:4])); got != 0 {
+		t.Fatalf("hasComm = %d, want 0", got)
+	}
+	if got := binary.LittleEndian.Uint32(payload[4:8]); got != flatTypeFD {
+		t.Fatalf("object type = %#x, want %#x", got, flatTypeFD)
+	}
+	if got := binary.LittleEndian.Uint32(payload[12:16]); got != 9 {
+		t.Fatalf("fd = %#x, want %#x", got, uint32(9))
+	}
+}
+
+func TestParcelReadStrongBinderUsesResolvers(t *testing.T) {
+	t.Run("handle", func(t *testing.T) {
+		p := NewParcel()
+		want := testBinder{id: "remote"}
+		p.SetBinderResolvers(func(handle uint32) Binder {
+			if handle != 7 {
+				t.Fatalf("resolver handle = %d, want 7", handle)
+			}
+			return want
+		}, nil)
+		if err := p.WriteStrongBinderHandle(7); err != nil {
+			t.Fatalf("WriteStrongBinderHandle: %v", err)
+		}
+		if err := p.SetPosition(0); err != nil {
+			t.Fatalf("SetPosition: %v", err)
+		}
+
+		got, err := p.ReadStrongBinder()
+		if err != nil {
+			t.Fatalf("ReadStrongBinder: %v", err)
+		}
+		if got != want {
+			t.Fatalf("ReadStrongBinder = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("local", func(t *testing.T) {
+		p := NewParcel()
+		want := testBinder{id: "local"}
+		p.SetBinderResolvers(nil, func(cookie uintptr) Binder {
+			if cookie != 9 {
+				t.Fatalf("resolver cookie = %d, want 9", cookie)
+			}
+			return want
+		})
+		if err := p.WriteStrongBinderLocal(1, 9); err != nil {
+			t.Fatalf("WriteStrongBinderLocal: %v", err)
+		}
+		if err := p.SetPosition(0); err != nil {
+			t.Fatalf("SetPosition: %v", err)
+		}
+
+		got, err := p.ReadStrongBinder()
+		if err != nil {
+			t.Fatalf("ReadStrongBinder: %v", err)
+		}
+		if got != want {
+			t.Fatalf("ReadStrongBinder = %#v, want %#v", got, want)
+		}
+	})
+}
+
+func TestParcelReadFileDescriptorOwnership(t *testing.T) {
+	t.Run("wire parcel owns incoming fd", func(t *testing.T) {
+		fd := dupPipeFD(t)
+
+		payload := make([]byte, flatObjectSize)
+		binary.LittleEndian.PutUint32(payload[0:4], flatTypeFD)
+		binary.LittleEndian.PutUint32(payload[8:12], uint32(fd))
+		p := NewParcelWire(payload, []ParcelObject{{
+			Kind:   ObjectFileDescriptor,
+			Offset: 0,
+			Length: flatObjectSize,
+			Handle: uint32(fd),
+		}})
+
+		got, err := p.ReadFileDescriptor()
+		if err != nil {
+			t.Fatalf("ReadFileDescriptor: %v", err)
+		}
+		if got.FD() != fd {
+			t.Fatalf("ReadFileDescriptor fd = %d, want %d", got.FD(), fd)
+		}
+		if !got.Owned() {
+			t.Fatal("ReadFileDescriptor owned = false, want true")
+		}
+		if err := got.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	})
+
+	t.Run("local parcel keeps fd borrowed", func(t *testing.T) {
+		fd := dupPipeFD(t)
+		defer func() {
+			if err := syscall.Close(fd); err != nil {
+				t.Fatalf("Close(fd): %v", err)
+			}
+		}()
+
+		p := NewParcel()
+		if err := p.WriteFileDescriptor(NewOwnedFileDescriptor(fd)); err != nil {
+			t.Fatalf("WriteFileDescriptor: %v", err)
+		}
+		if err := p.SetPosition(0); err != nil {
+			t.Fatalf("SetPosition: %v", err)
+		}
+
+		got, err := p.ReadFileDescriptor()
+		if err != nil {
+			t.Fatalf("ReadFileDescriptor: %v", err)
+		}
+		if got.FD() != fd {
+			t.Fatalf("ReadFileDescriptor fd = %d, want %d", got.FD(), fd)
+		}
+		if got.Owned() {
+			t.Fatal("ReadFileDescriptor owned = true, want false")
+		}
+	})
+}
+
+func TestParcelReadParcelFileDescriptor(t *testing.T) {
+	t.Run("wire parcel", func(t *testing.T) {
+		fd := dupPipeFD(t)
+
+		payload := make([]byte, 4+flatObjectSize)
+		binary.LittleEndian.PutUint32(payload[0:4], 0)
+		binary.LittleEndian.PutUint32(payload[4:8], flatTypeFD)
+		binary.LittleEndian.PutUint32(payload[12:16], uint32(fd))
+		p := NewParcelWire(payload, []ParcelObject{{
+			Kind:   ObjectFileDescriptor,
+			Offset: 4,
+			Length: flatObjectSize,
+			Handle: uint32(fd),
+		}})
+
+		got, err := p.ReadParcelFileDescriptor()
+		if err != nil {
+			t.Fatalf("ReadParcelFileDescriptor: %v", err)
+		}
+		if got.FD() != fd {
+			t.Fatalf("ReadParcelFileDescriptor fd = %d, want %d", got.FD(), fd)
+		}
+		if !got.Owned() {
+			t.Fatal("ReadParcelFileDescriptor owned = false, want true")
+		}
+		if err := got.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	})
+
+	t.Run("detached acknowledges comm fd", func(t *testing.T) {
+		fd := dupPipeFD(t)
+		commRead, commWrite, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe(comm): %v", err)
+		}
+		defer func() {
+			_ = commRead.Close()
+			_ = commWrite.Close()
+		}()
+		comm, err := syscall.Dup(int(commWrite.Fd()))
+		if err != nil {
+			t.Fatalf("syscall.Dup(comm): %v", err)
+		}
+
+		payload := make([]byte, 4+flatObjectSize+flatObjectSize)
+		binary.LittleEndian.PutUint32(payload[0:4], 1)
+		binary.LittleEndian.PutUint32(payload[4:8], flatTypeFD)
+		binary.LittleEndian.PutUint32(payload[12:16], uint32(fd))
+		binary.LittleEndian.PutUint32(payload[28:32], flatTypeFD)
+		binary.LittleEndian.PutUint32(payload[36:40], uint32(comm))
+		p := NewParcelWire(payload, []ParcelObject{
+			{
+				Kind:   ObjectFileDescriptor,
+				Offset: 4,
+				Length: flatObjectSize,
+				Handle: uint32(fd),
+			},
+			{
+				Kind:   ObjectFileDescriptor,
+				Offset: 28,
+				Length: flatObjectSize,
+				Handle: uint32(comm),
+			},
+		})
+
+		got, err := p.ReadParcelFileDescriptor()
+		if err != nil {
+			t.Fatalf("ReadParcelFileDescriptor(detached): %v", err)
+		}
+		if got.FD() != fd {
+			t.Fatalf("ReadParcelFileDescriptor(detached) fd = %d, want %d", got.FD(), fd)
+		}
+		if !got.Owned() {
+			t.Fatal("ReadParcelFileDescriptor(detached) owned = false, want true")
+		}
+
+		var ack [4]byte
+		if _, err := io.ReadFull(commRead, ack[:]); err != nil {
+			t.Fatalf("io.ReadFull(commRead): %v", err)
+		}
+		if ack != [4]byte{0x00, 0x00, 0x00, 0x02} {
+			t.Fatalf("detach ack = %v, want [0 0 0 2]", ack)
+		}
+		if err := syscall.Close(comm); err == nil {
+			t.Fatal("comm fd still open after detached read, want closed")
+		}
+		if err := got.Close(); err != nil {
+			t.Fatalf("Close(detached fd): %v", err)
+		}
+	})
+}
+
+func TestParcelWriteStrongBinderUsesMarshaler(t *testing.T) {
+	p := NewParcel()
+	b := testMarshaledBinder{handle: 11}
+
+	if err := p.WriteStrongBinder(b); err != nil {
+		t.Fatalf("WriteStrongBinder: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	var resolved Binder
+	p.SetBinderResolvers(func(handle uint32) Binder {
+		if handle != 11 {
+			t.Fatalf("resolver handle = %d, want 11", handle)
+		}
+		resolved = b
+		return b
+	}, nil)
+
+	got, err := p.ReadStrongBinder()
+	if err != nil {
+		t.Fatalf("ReadStrongBinder: %v", err)
+	}
+	if got != resolved {
+		t.Fatalf("ReadStrongBinder = %#v, want %#v", got, resolved)
+	}
+}
+
+type testBinder struct {
+	id string
+}
+
+func (b testBinder) Descriptor(ctx context.Context) (string, error) { return b.id, nil }
+func (b testBinder) Transact(ctx context.Context, code uint32, data *Parcel, flags Flags) (*Parcel, error) {
+	return nil, ErrUnsupported
+}
+func (b testBinder) WatchDeath(ctx context.Context) (Subscription, error) { return nil, ErrUnsupported }
+func (b testBinder) Close() error                                         { return nil }
+
+type testMarshaledBinder struct {
+	testBinder
+	handle uint32
+}
+
+func (b testMarshaledBinder) WriteBinderToParcel(p *Parcel) error {
+	return p.WriteStrongBinderHandle(b.handle)
+}
+
+func dupPipeFD(t *testing.T) int {
+	t.Helper()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer func() {
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	fd, err := syscall.Dup(int(r.Fd()))
+	if err != nil {
+		t.Fatalf("syscall.Dup: %v", err)
+	}
+	return fd
 }

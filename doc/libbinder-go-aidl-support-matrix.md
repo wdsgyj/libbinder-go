@@ -2,7 +2,7 @@
 
 ## 1. 目标
 
-这份矩阵用于冻结 Go backend 的支持边界，并明确 `0.0.3` 的基础状态。
+这份矩阵用于冻结 Go backend 的支持边界，并明确 `0.0.4` 的当前状态。
 
 状态说明：
 
@@ -15,9 +15,8 @@
 
 当前结论：
 
-- `0.0.3` 已完成阶段 0 的规范冻结
-- 阶段 1 到阶段 3 已经有最小骨架
-- 下一阻塞阶段是阶段 4：Binder object / interface / FD 通路
+- `0.0.4` 已补齐 AIDL 代码生成主链
+- 当前剩余缺口主要集中在更细的 annotation 语义校验、常量表达式与大规模 corpus 回归
 
 ---
 
@@ -27,7 +26,7 @@
 | --- | --- | --- | --- |
 | `package` | 解析并保留 package 名 | 已具备基础实现 | 阶段 1 |
 | `import` | 解析并保留 import 列表 | 已具备基础实现 | 阶段 1 |
-| 多文件 import graph | 解析跨文件依赖与布局 | 待实现 | 阶段 1 / 9 |
+| 多文件 import graph | 解析跨文件依赖与布局 | 已具备基础实现 | 阶段 1 / 9 |
 | `interface` | 解析接口声明 | 已具备基础实现 | 阶段 1 |
 | `oneway interface` | 解析 oneway 语义 | 已具备基础实现 | 阶段 1 |
 | 方法声明 | 解析返回值、参数、名称 | 已具备基础实现 | 阶段 1 |
@@ -45,7 +44,7 @@
 | annotation 语义校验 | 校验 `@nullable` / `@Backing` / `@FixedSize` / `@VintfStability` 等 | 待实现 | 阶段 1 / 8 |
 | source position / 诊断 | 错误包含位置信息 | 已具备基础实现 | 阶段 1 |
 | 常量表达式求值 | 不止字面量，支持更完整表达式 | 待实现 | 阶段 1 |
-| 名字解析 / 类型解析 | 建立 import 与符号表 | 待实现 | 阶段 1 / 2 |
+| 名字解析 / 类型解析 | 建立 import 与符号表 | 已具备基础实现 | 阶段 1 / 2 |
 
 ---
 
@@ -56,12 +55,12 @@
 | 最小 AST | 支撑 parser 输出 | 已具备基础实现 | 阶段 1 |
 | 最小 resolve | 基础重复声明诊断 | 已具备基础实现 | 阶段 1 |
 | 最小 IR | 生成摘要级 IR | 已具备基础实现 | 阶段 2 |
-| typed IR | 挂接类型检查与 codegen | 待实现 | 阶段 2 |
-| AIDL -> Go 类型映射表 | 对全部官方类型给出稳定映射 | 已冻结规范 | 阶段 0 / 2 |
-| nullability model | 明确 nil / pointer / value 规则 | 已冻结规范 | 阶段 0 / 2 |
-| directionality model | 明确 `in/out/inout` 的 Go 签名 | 已冻结规范 | 阶段 0 / 2 |
-| nested type lowering | 将嵌套声明转为可生成命名空间 | 待实现 | 阶段 2 / 5 |
-| stable AIDL type model | version/hash 与兼容元数据进入 IR | 待实现 | 阶段 8 |
+| typed IR / Go model | 挂接类型检查与 codegen | 已具备基础实现 | 阶段 2 |
+| AIDL -> Go 类型映射表 | 对全部官方类型给出稳定映射 | 已具备基础实现 | 阶段 0 / 2 |
+| nullability model | 明确 nil / pointer / value 规则 | 已具备基础实现 | 阶段 0 / 2 |
+| directionality model | 明确 `in/out/inout` 的 Go 签名 | 已具备基础实现 | 阶段 0 / 2 |
+| nested type lowering | 将嵌套声明转为可生成命名空间 | 已具备基础实现 | 阶段 2 / 5 |
+| stable AIDL type model | version/hash 与兼容元数据进入 IR | 已具备基础实现 | 阶段 8 |
 
 ---
 
@@ -80,14 +79,14 @@
 | `List<T>` | 与动态数组共用 slice helper | 已具备基础实现 | 阶段 3 |
 | `T[N]` | fixed-size helper + 长度校验 | 已具备基础实现 | 阶段 3 |
 | nullable 集合 | `nil` 表示 null，空 slice 表示 empty | 已冻结规范 | 阶段 0 / 3 |
-| `IBinder` | 通用 Binder object 传输 | 待实现 | 阶段 4 |
-| interface type | typed proxy / stub / callback | 待实现 | 阶段 4 / 7 |
-| `FileDescriptor` | FD 传输与所有权模型 | 已冻结规范 | 阶段 4 |
-| `ParcelFileDescriptor` | FD 包装与关闭语义 | 已冻结规范 | 阶段 4 |
-| structured parcelable codec | 自动字段编解码 | 待实现 | 阶段 5 |
-| enum codec | backing type 与常量生成 | 待实现 | 阶段 5 |
-| union codec | tag + payload 编解码 | 待实现 | 阶段 5 |
-| custom parcelable codec | sidecar 适配与外部 codec 接入 | 已冻结规范 | 阶段 6 |
+| `IBinder` | 通用 Binder object 传输 | 已具备基础实现 | 阶段 4 |
+| interface type | typed proxy / stub / callback | 已具备基础实现 | 阶段 4 / 7 |
+| `FileDescriptor` | FD 传输与所有权模型 | 已具备基础实现 | 阶段 4 |
+| `ParcelFileDescriptor` | FD 包装与关闭语义 | 已具备基础实现 | 阶段 4 |
+| structured parcelable codec | 自动字段编解码 | 已具备基础实现 | 阶段 5 |
+| enum codec | backing type 与常量生成 | 已具备基础实现 | 阶段 5 |
+| union codec | tag + payload 编解码 | 已具备基础实现 | 阶段 5 |
+| custom parcelable codec | sidecar 适配与外部 codec 接入 | 已具备基础实现 | 阶段 6 |
 
 ---
 
@@ -95,16 +94,16 @@
 
 | 能力 | 目标语义 | `0.0.3` 状态 | 对应阶段 |
 | --- | --- | --- | --- |
-| `cmd/aidlgen` 最小 CLI | 读取 AIDL 并输出 AST/摘要 | 已具备基础实现 | 阶段 7 的前置基础 |
+| `cmd/aidlgen` CLI | 读取 AIDL 并输出 AST/model/summary/Go 代码 | 已具备基础实现 | 阶段 7 的前置基础 |
 | AST JSON 输出 | 调试 parser | 已具备基础实现 | 当前 |
 | IR summary 输出 | 调试 lowering | 已具备基础实现 | 当前 |
-| Go interface 生成 | 生成业务接口定义 | 待实现 | 阶段 7 |
-| proxy client 生成 | 生成 typed client | 待实现 | 阶段 7 |
-| stub / server 生成 | 生成 dispatch handler | 待实现 | 阶段 7 |
-| transaction code 常量 | 自动分配并生成 | 待实现 | 阶段 7 |
-| descriptor 常量 | 自动生成 | 待实现 | 阶段 7 |
-| service helper | `Check/Wait/Add` typed helper | 待实现 | 阶段 7 |
-| 多文件 package 输出布局 | `-out` 下保持 package 目录结构 | 已冻结规范 | 阶段 9 |
+| Go interface 生成 | 生成业务接口定义 | 已具备基础实现 | 阶段 7 |
+| proxy client 生成 | 生成 typed client | 已具备基础实现 | 阶段 7 |
+| stub / server 生成 | 生成 dispatch handler | 已具备基础实现 | 阶段 7 |
+| transaction code 常量 | 自动分配并生成 | 已具备基础实现 | 阶段 7 |
+| descriptor 常量 | 自动生成 | 已具备基础实现 | 阶段 7 |
+| service helper | `Check/Wait/Add` typed helper | 已具备基础实现 | 阶段 7 |
+| 多文件 package 输出布局 | `-out` 下保持 package 目录结构 | 已具备基础实现 | 阶段 9 |
 | golden codegen corpus | 稳定输出回归 | 待实现 | 阶段 9 |
 
 ---
@@ -117,9 +116,9 @@
 | `@nullable(heap=true)` | 解析并保留 heap 语义元数据 | 已具备基础实现 | 阶段 1 |
 | `@FixedSize` | 解析并在 codegen/runtime 校验 | 已冻结规范 | 阶段 0 / 5 |
 | `@Backing(type=...)` | 解析并影响 enum backing type | 已冻结规范 | 阶段 0 / 5 |
-| `@VintfStability` | 解析并进入 stable AIDL 语义 | 已冻结规范 | 阶段 0 / 8 |
-| interface version/hash | 保留事务码与缓存策略 | 已冻结规范 | 阶段 8 |
-| `UNKNOWN_TRANSACTION` 回退 | 旧版本兼容 | 已冻结规范 | 阶段 8 |
+| `@VintfStability` | 解析并进入 stable AIDL 语义 | 已具备基础实现 | 阶段 0 / 8 |
+| interface version/hash | 保留事务码与缓存策略 | 已具备基础实现 | 阶段 8 |
+| `UNKNOWN_TRANSACTION` 回退 | 旧版本兼容 | 已具备基础实现 | 阶段 8 |
 
 ---
 
@@ -133,18 +132,21 @@
 | IR 单元测试 | 已具备基础实现 | 当前覆盖最小 lowering |
 | `aidlgen` CLI 单元测试 | 已具备基础实现 | 当前覆盖 AST / summary 输出 |
 | Android runtime 集成测试 | 已具备基础实现 | 当前覆盖 Binder runtime，不覆盖 codegen |
-| generated code e2e | 待实现 | 阶段 7 / 9 |
+| generated code e2e | 已具备基础实现 | 当前覆盖 host 编译与 proxy/stub round-trip |
 | AOSP AIDL corpus 回归 | 待实现 | 阶段 9 |
 
 ---
 
-## 8. `0.0.3` 结论
+## 8. `0.0.4` 结论
 
-`0.0.3` 的定位不是“已经有完整 AIDL 生成器”，而是：
+当前仓库已经具备完整 AIDL 代码生成主链：
 
-- 阶段 0 已完成
-- 阶段 1 到阶段 3 的最小基础件已经落地
-- parser / resolve / IR / codec / 最小 CLI 都已建立
-- 后续 generator 要继续推进，先补阶段 4 到阶段 6，再做阶段 7 的正式代码生成
+- parser / resolve / typed model / codegen / CLI / host e2e / emulator regression 都已打通
+- Binder object / callback / FD / custom parcelable / stable AIDL 都已经进入生成结果
+- import graph 的最小闭包加载与多文件输出也已建立
 
-换句话说，`0.0.3` 已经达到“完整 AIDL 生成功能的基础要求”，但还没有达到“完整 AIDL 生成功能本身”。
+剩余工作主要是增强型质量项，而不再是“生成器主功能缺失”：
+
+- 更完整的 annotation 语义校验
+- 更丰富的常量表达式求值
+- golden corpus 与 AOSP 大样本回归

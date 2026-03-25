@@ -34,6 +34,10 @@ func finalizeRemoteBinder(b *remoteBinder) {
 	_ = b.close(false)
 }
 
+func (b *remoteBinder) AsBinder() api.Binder {
+	return b
+}
+
 func (b *remoteBinder) Descriptor(ctx context.Context) (string, error) {
 	if err := b.checkOpen(); err != nil {
 		return "", err
@@ -67,6 +71,20 @@ func (b *remoteBinder) WatchDeath(ctx context.Context) (api.Subscription, error)
 		return nil, err
 	}
 	return b.conn.watchDeath(ctx, b.handle)
+}
+
+func (b *remoteBinder) RegisterLocalHandler(handler api.Handler) (api.Binder, error) {
+	if b == nil || b.conn == nil {
+		return nil, api.ErrUnsupported
+	}
+	return b.conn.registerLocalHandler(handler)
+}
+
+func (b *remoteBinder) WriteBinderToParcel(p *api.Parcel) error {
+	if err := b.checkOpen(); err != nil {
+		return err
+	}
+	return p.WriteStrongBinderHandle(b.handle)
 }
 
 func (b *remoteBinder) Close() error {

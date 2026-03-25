@@ -29,6 +29,9 @@ type Backend struct {
 
 	locals *localRegistry
 	deaths *deathRegistry
+
+	binderResolver func(uint32) api.Binder
+	localResolver  func(uintptr) api.Binder
 }
 
 func NewBackend(driverPath string) *Backend {
@@ -76,6 +79,14 @@ func (b *Backend) Close() error {
 	return driverErr
 }
 
+func (b *Backend) SetParcelResolvers(handleResolver func(uint32) api.Binder, localResolver func(uintptr) api.Binder) {
+	if b == nil {
+		return
+	}
+	b.binderResolver = handleResolver
+	b.localResolver = localResolver
+}
+
 func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32, data *api.Parcel, flags api.Flags) (*api.Parcel, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -108,6 +119,7 @@ func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32
 		}
 
 		reply = api.NewParcelWire(replyBytes, replyObjects)
+		reply.SetBinderResolvers(b.binderResolver, b.localResolver)
 		return nil
 	})
 	if err != nil {

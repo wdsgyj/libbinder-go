@@ -2,6 +2,109 @@
 
 本文件记录当前仓库的重要阶段性产出。
 
+## Unreleased
+
+## 0.0.4 - 2026-03-25
+
+本版本补齐了 AIDL 代码生成主链里原先阻塞“完整生成器”落地的几块核心缺口：Binder object / interface / FD 通路、custom parcelable sidecar、stable AIDL 元数据与兼容回退、以及跨文件 import graph 的最小闭包加载。
+
+### Added
+
+- `gomodel` 增加 custom parcelable / stable interface 元数据建模：
+  - custom parcelable sidecar 读取
+  - stable interface version/hash sidecar 读取
+  - `@VintfStability` lowering
+  - dependency file 符号收集
+- `codegen` 增加完整 AIDL 生成能力补齐：
+  - `FileDescriptor`
+  - `ParcelFileDescriptor`
+  - parcelable/union 内嵌 `IBinder` / interface / FD
+  - custom parcelable codec wrapper 生成
+  - stable interface version/hash 常量、proxy cache、stub provider、compat fallback
+- `cmd/aidlgen` 增加：
+  - `-types` sidecar 支持
+  - import graph 递归装载
+  - 单根文件触发的多文件生成
+
+### Changed
+
+- opaque `parcelable Foo;` 不再在 codegen 阶段一律拒绝，而是通过 sidecar 映射到外部 Go 类型与 codec 入口。
+- generated proxy/stub 现在可以正确处理 parcelable/union 中递归出现的 callback/interface 字段，并把 local handler registrar 继续传到嵌套层。
+- stable AIDL 保留事务不再只是 runtime 预留能力，生成代码现在会真正暴露：
+  - `InterfaceVersion`
+  - `InterfaceHash`
+  - `UNKNOWN_TRANSACTION` 回退缓存逻辑
+- `aidlgen` 不再局限于单文件孤立生成；当 import 目标在源码树可解析时，会一起进入 lowering / codegen 闭包。
+
+### Testing
+
+- 新增 `gomodel` 单测覆盖：
+  - `FileDescriptor` / `ParcelFileDescriptor` lowering
+  - custom parcelable sidecar lowering
+  - stable interface metadata lowering
+  - dependency file 解析
+- 新增 `codegen` host e2e 覆盖：
+  - parcelable/union 中的 interface / `IBinder` / FD round-trip
+  - custom parcelable sidecar round-trip
+  - stable interface version/hash 与 `UNKNOWN_TRANSACTION` fallback
+- 新增 `cmd/aidlgen` 单测覆盖：
+  - `-types` sidecar 输出
+  - import graph 自动装载并生成依赖文件
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
+### Added
+
+- 增加 `internal/aidl/gomodel`，把 AIDL AST 降为 Go backend 可直接使用的 typed model：
+  - AIDL -> Go 类型映射
+  - nested type flatten
+  - interface descriptor / transaction code 分配
+  - `in/out/inout` Go 签名建模
+  - oneway 约束的基础诊断
+- 增加 `internal/aidl/codegen`，支持从 typed model 生成第一版 Go 代码：
+  - structured parcelable
+  - enum
+  - union
+  - interface
+  - proxy client
+  - stub / handler
+  - `Check/Wait/AddService` typed helper
+- `binder.Parcel` 增加 `ReadInterfaceToken`，用于 generated stub 正确解包和校验请求头。
+
+### Changed
+
+- `cmd/aidlgen` 不再只输出 AST / summary：
+  - 新增 `-format model`
+  - 新增 `-format go`
+  - 新增 `-out` 输出目录支持
+- parser/gomodel 现在会把 field 和返回值上的 `@nullable` 下沉到 Go 类型映射。
+- enum 成员命名从简单字符串拼接改为更符合 Go 风格的导出名。
+
+### Testing
+
+- 新增 `internal/aidl/gomodel/lower_test.go`
+  - 覆盖 nested type、nullable、`inout`、oneway 诊断
+- 新增 `internal/aidl/codegen/go_test.go`
+  - 生成代码编译测试
+  - generated proxy/stub host round-trip 行为测试
+  - Android 环境下对 host-only 测试自动跳过
+- `cmd/aidlgen/main_test.go` 增加：
+  - `model` 输出测试
+  - `go` 输出到 stdout 测试
+  - `go` 输出到目录测试
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
 ## 0.0.3 - 2026-03-25
 
 本版本完成了“AIDL 全功能生成器”的基础要求收敛：阶段 0 已冻结，阶段 1 到阶段 3 已具备最小实现骨架，并且对应测试已在宿主机与 Android aarch64 模拟器上通过。

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"syscall"
 	"unicode/utf16"
 )
 
@@ -16,6 +17,7 @@ const (
 	flatTypeBinder  = uint32('s')<<24 | uint32('b')<<16 | uint32('*')<<8 | 0x85
 	flatTypeWBinder = uint32('w')<<24 | uint32('b')<<16 | uint32('*')<<8 | 0x85
 	flatTypeHandle  = uint32('s')<<24 | uint32('h')<<16 | uint32('*')<<8 | 0x85
+	flatTypeFD      = uint32('f')<<24 | uint32('d')<<16 | uint32('*')<<8 | 0x85
 
 	flatBinderFlagAcceptsFDs = 0x100
 	localBinderSchedBits     = 19
@@ -79,11 +81,14 @@ type ParcelObject struct {
 // format. This MVP implements the core scalar/string/[]byte codec and keeps the
 // object table reserved for later kernel/RPC work.
 type Parcel struct {
-	buf     []byte
-	pos     int
-	objects []parcelObjectRef
-	mode    parcelMode
-	flags   parcelFlags
+	buf                []byte
+	pos                int
+	objects            []parcelObjectRef
+	mode               parcelMode
+	flags              parcelFlags
+	binderResolver     func(uint32) Binder
+	localBinderResolve func(uintptr) Binder
+	wireFDsOwned       bool
 }
 
 func NewParcel() *Parcel {
@@ -114,6 +119,7 @@ func (p *Parcel) Reset() {
 	p.buf = p.buf[:0]
 	p.pos = 0
 	p.objects = nil
+	p.wireFDsOwned = false
 }
 
 func (p *Parcel) SetBytes(b []byte) {
@@ -123,6 +129,7 @@ func (p *Parcel) SetBytes(b []byte) {
 	p.buf = append(p.buf[:0], b...)
 	p.pos = 0
 	p.objects = nil
+	p.wireFDsOwned = false
 }
 
 // SetWireData replaces the Parcel contents with raw Binder payload bytes plus
@@ -135,6 +142,7 @@ func (p *Parcel) SetWireData(b []byte, objects []ParcelObject) {
 	p.buf = append(p.buf[:0], b...)
 	p.pos = 0
 	p.objects = p.objects[:0]
+	p.wireFDsOwned = true
 	for _, obj := range objects {
 		p.objects = append(p.objects, parcelObjectRef{
 			Kind:       objectKindToRef(obj.Kind),
@@ -144,6 +152,16 @@ func (p *Parcel) SetWireData(b []byte, objects []ParcelObject) {
 			Handle:     obj.Handle,
 		})
 	}
+}
+
+// SetBinderResolvers configures how ReadStrongBinder resolves remote handles
+// and local node cookies into public Binder values.
+func (p *Parcel) SetBinderResolvers(handleResolver func(uint32) Binder, localResolver func(uintptr) Binder) {
+	if p == nil {
+		return
+	}
+	p.binderResolver = handleResolver
+	p.localBinderResolve = localResolver
 }
 
 func (p *Parcel) Bytes() []byte {
@@ -342,6 +360,36 @@ func (p *Parcel) WriteInterfaceToken(descriptor string) error {
 	return p.WriteString(descriptor)
 }
 
+// ReadInterfaceToken reads and validates the standard Android Binder request
+// header written by WriteInterfaceToken and returns the interface descriptor.
+func (p *Parcel) ReadInterfaceToken() (string, error) {
+	strictMode, err := p.ReadUint32()
+	if err != nil {
+		return "", err
+	}
+	if strictMode != 1<<31 {
+		return "", fmt.Errorf("%w: invalid strict mode header %#x", ErrBadParcelable, strictMode)
+	}
+
+	workSource, err := p.ReadInt32()
+	if err != nil {
+		return "", err
+	}
+	if workSource != -1 {
+		return "", fmt.Errorf("%w: invalid work source header %d", ErrBadParcelable, workSource)
+	}
+
+	header, err := p.ReadUint32()
+	if err != nil {
+		return "", err
+	}
+	if header != packChars('S', 'Y', 'S', 'T') {
+		return "", fmt.Errorf("%w: invalid interface token header %#x", ErrBadParcelable, header)
+	}
+
+	return p.ReadString()
+}
+
 // WriteStrongBinderLocal writes a local Binder object for kernel Binder IPC.
 // This is a low-level helper used by runtime code that is registering or
 // passing process-local Binder nodes.
@@ -372,6 +420,47 @@ func (p *Parcel) WriteStrongBinderLocal(ptr, cookie uintptr) error {
 	return nil
 }
 
+// WriteStrongBinderHandle writes a remote Binder handle object for kernel
+// Binder IPC.
+func (p *Parcel) WriteStrongBinderHandle(handle uint32) error {
+	if p == nil {
+		return ErrBadParcelable
+	}
+
+	start := p.pos
+	if err := p.writeBlock(flatObjectSize, func(dst []byte) {
+		binary.LittleEndian.PutUint32(dst[0:], flatTypeHandle)
+		binary.LittleEndian.PutUint32(dst[4:], 0)
+		binary.LittleEndian.PutUint32(dst[8:], handle)
+	}); err != nil {
+		return err
+	}
+	if err := p.WriteInt32(systemStabilityLevel); err != nil {
+		return err
+	}
+
+	p.objects = append(p.objects, parcelObjectRef{
+		Kind:       parcelObjectBinder,
+		ObjectKind: ObjectStrongBinder,
+		Offset:     start,
+		Length:     flatObjectSize,
+		Handle:     handle,
+	})
+	return nil
+}
+
+// WriteStrongBinder writes a nullable strong Binder object using either the
+// implementation's native marshaler or a null Binder object.
+func (p *Parcel) WriteStrongBinder(b Binder) error {
+	if b == nil {
+		return p.WriteNullStrongBinder()
+	}
+	if m, ok := b.(ParcelBinderMarshaler); ok {
+		return m.WriteBinderToParcel(p)
+	}
+	return fmt.Errorf("%w: binder %T does not support parcel marshaling", ErrUnsupported, b)
+}
+
 // WriteNullStrongBinder writes a nullable strong Binder object with a nil
 // value using the kernel Binder wire format.
 func (p *Parcel) WriteNullStrongBinder() error {
@@ -385,6 +474,49 @@ func (p *Parcel) WriteNullStrongBinder() error {
 		return err
 	}
 	return p.WriteInt32(0)
+}
+
+// WriteFileDescriptor writes a low-level Binder file descriptor object.
+//
+// The caller retains ownership of the descriptor and must keep it open until
+// the transaction using this Parcel has completed.
+func (p *Parcel) WriteFileDescriptor(fd FileDescriptor) error {
+	if p == nil {
+		return ErrBadParcelable
+	}
+	if p.flags&parcelFlagAllowFDs == 0 {
+		return fmt.Errorf("%w: file descriptors not allowed in parcel", ErrUnsupported)
+	}
+	if fd.FD() < 0 {
+		return fmt.Errorf("%w: invalid file descriptor %d", ErrBadParcelable, fd.FD())
+	}
+
+	start := p.pos
+	if err := p.writeBlock(flatObjectSize, func(dst []byte) {
+		binary.LittleEndian.PutUint32(dst[0:], flatTypeFD)
+		binary.LittleEndian.PutUint32(dst[4:], 0)
+		binary.LittleEndian.PutUint32(dst[8:], uint32(fd.FD()))
+	}); err != nil {
+		return err
+	}
+
+	p.objects = append(p.objects, parcelObjectRef{
+		Kind:       parcelObjectFD,
+		ObjectKind: ObjectFileDescriptor,
+		Offset:     start,
+		Length:     flatObjectSize,
+		Handle:     uint32(fd.FD()),
+	})
+	return nil
+}
+
+// WriteParcelFileDescriptor writes the low-level Parcel::writeParcelFileDescriptor
+// wire form: a detached-comm flag followed by a file descriptor object.
+func (p *Parcel) WriteParcelFileDescriptor(fd ParcelFileDescriptor) error {
+	if err := p.WriteInt32(0); err != nil {
+		return err
+	}
+	return p.WriteFileDescriptor(fd.FileDescriptor)
 }
 
 func (p *Parcel) ReadInt32() (int32, error) {
@@ -566,22 +698,94 @@ func (p *Parcel) ReadObject() (*ParcelObject, error) {
 // ReadStrongBinderHandle reads the next strong Binder object and returns its
 // remote handle. A null strong Binder returns nil without error.
 func (p *Parcel) ReadStrongBinderHandle() (*uint32, error) {
-	obj, err := p.ReadObject()
+	obj, _, _, err := p.readStrongBinderObject()
 	if err != nil {
-		return nil, err
-	}
-	if _, err := p.ReadInt32(); err != nil {
 		return nil, err
 	}
 	if obj == nil || obj.Kind == ObjectNullBinder {
 		return nil, nil
 	}
-	if obj.Kind != ObjectStrongBinder {
-		return nil, fmt.Errorf("%w: expected strong binder object, got %d", ErrBadParcelable, obj.Kind)
-	}
 
 	handle := obj.Handle
 	return &handle, nil
+}
+
+// ReadStrongBinder reads the next nullable strong Binder object and resolves
+// it to a public Binder value using the configured parcel resolvers.
+func (p *Parcel) ReadStrongBinder() (Binder, error) {
+	obj, typ, cookie, err := p.readStrongBinderObject()
+	if err != nil {
+		return nil, err
+	}
+	if obj == nil || obj.Kind == ObjectNullBinder {
+		return nil, nil
+	}
+
+	switch typ {
+	case flatTypeHandle:
+		if p.binderResolver == nil {
+			return nil, fmt.Errorf("%w: no binder handle resolver configured", ErrUnsupported)
+		}
+		return p.binderResolver(obj.Handle), nil
+	case flatTypeBinder:
+		if p.localBinderResolve == nil {
+			return nil, fmt.Errorf("%w: no local binder resolver configured", ErrUnsupported)
+		}
+		return p.localBinderResolve(cookie), nil
+	default:
+		return nil, fmt.Errorf("%w: unsupported binder object type %#x", ErrBadParcelable, typ)
+	}
+}
+
+// ReadFileDescriptor reads the next low-level Binder file descriptor object.
+//
+// File descriptors decoded from kernel wire data are marked owned. File
+// descriptors read back from a process-local Parcel remain borrowed.
+func (p *Parcel) ReadFileDescriptor() (FileDescriptor, error) {
+	fd, err := p.readFileDescriptorObject()
+	if err != nil {
+		return FileDescriptor{}, err
+	}
+	if p.wireFDsOwned {
+		return NewOwnedFileDescriptor(fd), nil
+	}
+	return NewFileDescriptor(fd), nil
+}
+
+// ReadParcelFileDescriptor reads the low-level Parcel::readParcelFileDescriptor
+// wire form.
+func (p *Parcel) ReadParcelFileDescriptor() (ParcelFileDescriptor, error) {
+	hasComm, err := p.ReadInt32()
+	if err != nil {
+		return ParcelFileDescriptor{}, err
+	}
+
+	fd, err := p.ReadFileDescriptor()
+	if err != nil {
+		return ParcelFileDescriptor{}, err
+	}
+
+	if hasComm != 0 {
+		comm, commErr := p.ReadFileDescriptor()
+		if commErr != nil {
+			if fd.Owned() {
+				_ = fd.Close()
+			}
+			return ParcelFileDescriptor{}, commErr
+		}
+		ackErr := acknowledgeDetachedParcelFileDescriptor(comm)
+		if comm.Owned() {
+			_ = comm.Close()
+		}
+		if ackErr != nil {
+			if fd.Owned() {
+				_ = fd.Close()
+			}
+			return ParcelFileDescriptor{}, ackErr
+		}
+	}
+
+	return ParcelFileDescriptor{FileDescriptor: fd}, nil
 }
 
 func (p *Parcel) writeBlock(payloadLen int, fill func([]byte)) error {
@@ -699,6 +903,85 @@ func objectKindToRef(kind ObjectKind) parcelObjectKind {
 	}
 }
 
+func (p *Parcel) readStrongBinderObject() (*ParcelObject, uint32, uintptr, error) {
+	if p == nil {
+		return nil, 0, 0, ErrBadParcelable
+	}
+
+	start := p.pos
+	block, err := p.readBlock(flatObjectSize)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	typ := binary.LittleEndian.Uint32(block[0:4])
+
+	switch typ {
+	case flatTypeBinder:
+		if isNullBinderBlock(block) {
+			if _, err := p.ReadInt32(); err != nil {
+				return nil, 0, 0, err
+			}
+			return &ParcelObject{
+				Kind:   ObjectNullBinder,
+				Offset: start,
+				Length: len(block),
+			}, typ, 0, nil
+		}
+	case flatTypeHandle:
+		// continue
+	default:
+		return nil, 0, 0, fmt.Errorf("%w: expected strong binder object at offset %d", ErrBadParcelable, start)
+	}
+
+	ref, ok := p.objectAt(start)
+	if !ok {
+		return nil, 0, 0, fmt.Errorf("%w: missing binder object table entry at offset %d", ErrBadParcelable, start)
+	}
+	if ref.ObjectKind != ObjectStrongBinder {
+		return nil, 0, 0, fmt.Errorf("%w: expected strong binder object, got %d", ErrBadParcelable, ref.ObjectKind)
+	}
+	if _, err := p.ReadInt32(); err != nil {
+		return nil, 0, 0, err
+	}
+
+	obj := &ParcelObject{
+		Kind:   ref.ObjectKind,
+		Offset: ref.Offset,
+		Length: ref.Length,
+		Handle: ref.Handle,
+	}
+	cookie := uintptr(binary.LittleEndian.Uint64(block[16:24]))
+	if typ == flatTypeHandle {
+		obj.Handle = binary.LittleEndian.Uint32(block[8:12])
+	}
+	return obj, typ, cookie, nil
+}
+
+func (p *Parcel) readFileDescriptorObject() (int, error) {
+	if p == nil {
+		return 0, ErrBadParcelable
+	}
+
+	start := p.pos
+	block, err := p.readBlock(flatObjectSize)
+	if err != nil {
+		return 0, err
+	}
+	if binary.LittleEndian.Uint32(block[0:4]) != flatTypeFD {
+		return 0, fmt.Errorf("%w: expected file descriptor object at offset %d", ErrBadParcelable, start)
+	}
+
+	ref, ok := p.objectAt(start)
+	if !ok {
+		return 0, fmt.Errorf("%w: missing file descriptor object table entry at offset %d", ErrBadParcelable, start)
+	}
+	if ref.ObjectKind != ObjectFileDescriptor {
+		return 0, fmt.Errorf("%w: expected file descriptor object, got %d", ErrBadParcelable, ref.ObjectKind)
+	}
+
+	return int(int32(binary.LittleEndian.Uint32(block[8:12]))), nil
+}
+
 func isNullBinderBlock(block []byte) bool {
 	if len(block) != flatObjectSize {
 		return false
@@ -715,6 +998,22 @@ func isNullBinderBlock(block []byte) bool {
 
 func isStrongHandleBlock(block []byte) bool {
 	return len(block) == flatObjectSize && binary.LittleEndian.Uint32(block[0:4]) == flatTypeHandle
+}
+
+func acknowledgeDetachedParcelFileDescriptor(comm FileDescriptor) error {
+	if comm.FD() < 0 {
+		return fmt.Errorf("%w: invalid ParcelFileDescriptor comm fd %d", ErrBadParcelable, comm.FD())
+	}
+
+	msg := [4]byte{0x00, 0x00, 0x00, 0x02}
+	written, err := syscall.Write(comm.FD(), msg[:])
+	if err != nil {
+		return fmt.Errorf("%w: failed to acknowledge detached ParcelFileDescriptor: %v", ErrBadParcelable, err)
+	}
+	if written != len(msg) {
+		return fmt.Errorf("%w: short detached ParcelFileDescriptor ack %d", ErrBadParcelable, written)
+	}
+	return nil
 }
 
 func packChars(c1, c2, c3, c4 byte) uint32 {

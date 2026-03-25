@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	libbinder "github.com/wdsgyj/libbinder-go"
+	"github.com/wdsgyj/libbinder-go"
 	api "github.com/wdsgyj/libbinder-go/binder"
 )
 

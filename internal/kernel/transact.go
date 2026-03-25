@@ -334,11 +334,3 @@ func (d *DriverManager) acquireParcelObjects(objects []api.ParcelObject) error {
 	}
 	return nil
 }
-
-func statusReplyError(payload []byte) error {
-	if len(payload) < 4 {
-		return ErrFailedReply
-	}
-	code := int32(binary.LittleEndian.Uint32(payload[:4]))
-	return fmt.Errorf("kernel: transaction status %d", code)
-}

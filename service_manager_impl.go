@@ -22,6 +22,13 @@ type serviceManager struct {
 	target *remoteBinder
 }
 
+func (m *serviceManager) RegisterLocalHandler(handler api.Handler) (api.Binder, error) {
+	if m == nil || m.conn == nil {
+		return nil, api.ErrUnsupported
+	}
+	return m.conn.registerLocalHandler(handler)
+}
+
 func (m *serviceManager) CheckService(ctx context.Context, name string) (api.Binder, error) {
 	reply, err := m.call(ctx, checkServiceTransactionID, name)
 	if err != nil {

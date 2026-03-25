@@ -45,6 +45,7 @@ func Open(cfg Config) (*Conn, error) {
 	conn := &Conn{
 		rt: rt,
 	}
+	conn.rt.Kernel.SetParcelResolvers(conn.resolveBinderHandle, conn.resolveLocalBinder)
 	conn.sm = &serviceManager{
 		conn:   conn,
 		target: newRemoteBinder(conn, contextManagerHandle),
@@ -183,6 +184,29 @@ func (c *Conn) registerLocalNode(handler api.Handler, serial bool) (runtime.Loca
 		return runtime.LocalNodeRef{}, api.ErrUnsupported
 	}
 	return c.rt.RegisterLocalNode(handler, serial)
+}
+
+func (c *Conn) registerLocalHandler(handler api.Handler) (api.Binder, error) {
+	node, err := c.registerLocalNode(handler, false)
+	if err != nil {
+		return nil, err
+	}
+	return newLocalBinder(c, node.ID), nil
+}
+
+func (c *Conn) resolveBinderHandle(handle uint32) api.Binder {
+	if c == nil {
+		return nil
+	}
+	c.markHandleAcquired(handle)
+	return newRemoteBinder(c, handle)
+}
+
+func (c *Conn) resolveLocalBinder(nodeID uintptr) api.Binder {
+	if c == nil || nodeID == 0 {
+		return nil
+	}
+	return newLocalBinder(c, nodeID)
 }
 
 func (c *Conn) watchDeath(ctx context.Context, handle uint32) (api.Subscription, error) {

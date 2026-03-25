@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	libbinder "github.com/wdsgyj/libbinder-go"
+	"github.com/wdsgyj/libbinder-go"
 	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
