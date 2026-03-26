@@ -10,6 +10,7 @@ import (
 
 	"github.com/wdsgyj/libbinder-go"
 	api "github.com/wdsgyj/libbinder-go/binder"
+	binderservice "github.com/wdsgyj/libbinder-go/service"
 )
 
 type openedConn interface {
@@ -21,20 +22,7 @@ var openConn = func(cfg libbinder.Config) (openedConn, error) {
 	return libbinder.Open(cfg)
 }
 
-var (
-	parcelWriteInt32 = func(p *api.Parcel, v int32) error {
-		return p.WriteInt32(v)
-	}
-	parcelWriteString = func(p *api.Parcel, v string) error {
-		return p.WriteString(v)
-	}
-	parcelWriteNullStrongBinder = func(p *api.Parcel) error {
-		return p.WriteStrongBinder(nil)
-	}
-)
-
 const (
-	inputServiceName    = "input"
 	unavailableExitCode = 20
 )
 
@@ -88,24 +76,32 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 		return unavailableExitCode
 	}
 
-	service, err := resolved.serviceManager.CheckService(ctx, inputServiceName)
+	service, err := binderservice.LookupInputManagerService(ctx, resolved.serviceManager)
 	if err != nil {
-		fmt.Fprintf(resolved.errorLog, "input: Failure finding service %s: %v\n", inputServiceName, err)
+		if errors.Is(err, api.ErrNoService) {
+			fmt.Fprintf(resolved.errorLog, "input: Can't find service: %s\n", binderservice.InputServiceName)
+			return unavailableExitCode
+		}
+		fmt.Fprintf(resolved.errorLog, "input: Failure finding service %s: %v\n", binderservice.InputServiceName, err)
 		return unavailableExitCode
 	}
-	if service == nil {
-		fmt.Fprintf(resolved.errorLog, "input: Can't find service: %s\n", inputServiceName)
-		return unavailableExitCode
-	}
-
-	data := api.NewParcel()
-	if err := writeShellCommandRequest(data, resolved.inFD, resolved.outFD, resolved.errFD, argv); err != nil {
-		fmt.Fprintf(resolved.errorLog, "input: Failed to build shell command request: %v\n", err)
-		return 1
-	}
-	if _, err := service.Transact(ctx, api.ShellCommandTransaction, data, api.FlagNone); err != nil {
+	err = service.WithShellIO(binderservice.InputShellIO{
+		InFD:  api.NewFileDescriptor(resolved.inFD),
+		OutFD: api.NewFileDescriptor(resolved.outFD),
+		ErrFD: api.NewFileDescriptor(resolved.errFD),
+	}).ExecuteCommand(ctx, argv)
+	if err != nil {
+		var buildErr *binderservice.InputShellCommandBuildError
+		if errors.As(err, &buildErr) {
+			fmt.Fprintf(resolved.errorLog, "input: Failed to build shell command request: %v\n", err)
+			return 1
+		}
+		if errors.Is(err, api.ErrBadParcelable) {
+			fmt.Fprintf(resolved.errorLog, "input: %v\n", err)
+			return 1
+		}
 		code := transactExitCode(err)
-		fmt.Fprintf(resolved.outputLog, "input: Failure calling service %s: %s (%d)\n", inputServiceName, transactErrorText(err), printableStatusMagnitude(code))
+		fmt.Fprintf(resolved.outputLog, "input: Failure calling service %s: %s (%d)\n", binderservice.InputServiceName, transactErrorText(err), printableStatusMagnitude(code))
 		return code
 	}
 	return 0
@@ -127,40 +123,6 @@ func writerOrDiscard(w io.Writer) io.Writer {
 		return io.Discard
 	}
 	return w
-}
-
-func writeShellCommandRequest(p *api.Parcel, inFD int, outFD int, errFD int, args []string) error {
-	err := p.WriteFileDescriptor(api.NewFileDescriptor(inFD))
-	if err == nil {
-		err = p.WriteFileDescriptor(api.NewFileDescriptor(outFD))
-	}
-	if err == nil {
-		err = p.WriteFileDescriptor(api.NewFileDescriptor(errFD))
-	}
-	if err != nil {
-		return err
-	}
-
-	err = parcelWriteInt32(p, int32(len(args)))
-	for _, arg := range args {
-		if err == nil {
-			err = parcelWriteString(p, arg)
-		}
-	}
-	if err != nil {
-		return err
-	}
-
-	// `input` shell commands are synchronous in practice; sending nil here keeps
-	// the client aligned with device behavior without depending on callback IPC.
-	err = parcelWriteNullStrongBinder(p)
-	if err == nil {
-		err = parcelWriteNullStrongBinder(p)
-	}
-	if err != nil {
-		return err
-	}
-	return p.SetPosition(0)
 }
 
 func transactErrorText(err error) string {

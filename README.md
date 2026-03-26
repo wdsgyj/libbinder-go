@@ -241,6 +241,25 @@ adb shell '/data/local/tmp/libbinder-go-input tap 100 200'
   - `REAL_INPUT_ARGS="keyevent 3" ./scripts/android-device-input-test.sh`
   - `REAL_INPUT_ARGS="tap 100 200" ./scripts/android-device-input-test.sh`
 
+`cmd/cmd` callback 真机回归：
+
+```bash
+./scripts/android-device-cmd-callback-test.sh
+```
+
+说明：
+
+- 覆盖 `IResultReceiver` 与 `IShellCallback`
+- 默认验证：
+  - `activity help`
+  - `input keyevent 0`
+  - `activity trace-ipc stop --dump-file ...`
+- 如需查看 callback/runtime trace，可用：
+
+```bash
+TRACE_ENABLED=1 ./scripts/android-device-cmd-callback-test.sh
+```
+
 ### 6. 构建并运行 `dumpsys`
 
 为 Android arm64 构建：
@@ -312,9 +331,23 @@ Android aarch64 模拟器：
 ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v
 ```
 
+Android 真机协议回归：
+
+```bash
+./scripts/android-device-protocol-regression.sh
+```
+
+该脚本会串行执行：
+
+- `cmd/cmd` callback 回归
+- `cmd/input` 差分回归
+- `service check/list` 差分回归
+- `dumpsys -l/--pid` 差分回归
+
 ## 相关文档
 
 - [CHANGELOG.md](./CHANGELOG.md)
+- [doc/binder-protocol-compatibility-audit.md](./doc/binder-protocol-compatibility-audit.md)
 - [doc/libbinder-go-implementation-roadmap.md](./doc/libbinder-go-implementation-roadmap.md)
 - [doc/libbinder-go-aidl-full-plan.md](./doc/libbinder-go-aidl-full-plan.md)
 - [doc/libbinder-go-runtime-internal-architecture.md](./doc/libbinder-go-runtime-internal-architecture.md)

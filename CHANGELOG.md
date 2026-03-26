@@ -6,6 +6,16 @@
 
 ### Added
 
+- 增加 Binder 协议兼容审计文档：
+  - `doc/binder-protocol-compatibility-audit.md`
+  - 梳理 ABI 常量、动态字段、当前风险点与回归矩阵
+- 增加 `cmd/cmd` callback 真机回归脚本：
+  - `scripts/android-device-cmd-callback-test.sh`
+  - 覆盖 `IResultReceiver` 与 `IShellCallback`
+  - 验证 `activity help`、`input keyevent 0`、`activity trace-ipc stop --dump-file ...`
+- 增加 Binder 协议总回归脚本：
+  - `scripts/android-device-protocol-regression.sh`
+  - 串行覆盖 `cmd/cmd`、`cmd/input`、`cmd/service`、`cmd/dumpsys` 的真机协议差分
 - 增加 AOSP `cmd input` 的 Go 实现：
   - `cmd/input`
   - 通过 `input` service 的 `SHELL_COMMAND_TRANSACTION` 复刻 shell 用户可用的 `cmd input` 主流程
@@ -36,6 +46,11 @@
 
 ### Changed
 
+- `binder.Parcel.ReadInterfaceToken()` 现在按 AOSP 实际语义读取 request header：
+  - 不再把 `strictMode` 与 `workSourceUid` 当作固定值校验
+  - 修复 framework callback 在真机上的误判坏 Parcel 问题
+- `cmd/cmd` 的 `ShellCallbackHandler.OpenFile()` 现在正确保留绝对路径：
+  - 不再把 `/data/local/tmp/...` 这类路径错误拼到 `workingDir` 下
 - `ListenRPCUnix("")` 现在会自动分配当前环境可用的临时监听地址：
   - Android 使用 abstract unix socket
   - 其他平台使用临时目录下的 pathname unix socket，并在 `Close()` 时清理
@@ -67,9 +82,13 @@
 ### Verification
 
 - Android arm64 构建：
+  - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-cmd ./cmd/cmd`
+  - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-service ./cmd/service`
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-input ./cmd/input`
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-dumpsys ./cmd/dumpsys`
 - 真机验证：
+  - `./scripts/android-device-cmd-callback-test.sh`
+  - `./scripts/android-device-protocol-regression.sh`
   - `/data/local/tmp/libbinder-go-input`
   - `/data/local/tmp/libbinder-go-input not-a-command`
   - `/data/local/tmp/libbinder-go-input keyevent 0`

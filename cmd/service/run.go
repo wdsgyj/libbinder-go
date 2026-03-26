@@ -386,11 +386,11 @@ func parseIntentArgs(args []string, errorLog io.Writer, output io.Writer) (inten
 		}
 		switch key {
 		case "action":
-			out.action = stringPtr(value)
+			out.action = libbinder.StringPtr(value)
 		case "data":
-			out.data = stringPtr(value)
+			out.data = libbinder.StringPtr(value)
 		case "type":
-			out.mimeType = stringPtr(value)
+			out.mimeType = libbinder.StringPtr(value)
 		case "launchFlags":
 			parsed, err := strconv.ParseInt(value, 0, 32)
 			if err != nil {
@@ -400,7 +400,7 @@ func parseIntentArgs(args []string, errorLog io.Writer, output io.Writer) (inten
 			}
 			out.launchFlags = int32(parsed)
 		case "component":
-			out.component = stringPtr(value)
+			out.component = libbinder.StringPtr(value)
 		case "categories":
 			if value == "" {
 				out.categories = nil
@@ -545,10 +545,6 @@ func (f fileDescriptorCloser) Close() error {
 		return err
 	}
 	return nil
-}
-
-func stringPtr(v string) *string {
-	return &v
 }
 
 func duplicateFD(fd int) (*os.File, error) {

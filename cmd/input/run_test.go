@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	api "github.com/wdsgyj/libbinder-go/binder"
+	binderservice "github.com/wdsgyj/libbinder-go/service"
 )
 
 func TestRunForwardsShellCommandArgs(t *testing.T) {
@@ -47,8 +48,8 @@ func TestRunForwardsShellCommandArgs(t *testing.T) {
 	}
 	sm := fakeServiceManager{
 		checkService: func(ctx context.Context, name string) (api.Binder, error) {
-			if name != inputServiceName {
-				t.Fatalf("CheckService name = %q, want %q", name, inputServiceName)
+			if name != binderservice.InputServiceName {
+				t.Fatalf("CheckService name = %q, want %q", name, binderservice.InputServiceName)
 			}
 			return service, nil
 		},
@@ -138,7 +139,7 @@ func TestRunMissingService(t *testing.T) {
 	if code != unavailableExitCode {
 		t.Fatalf("Run code = %d, want %d", code, unavailableExitCode)
 	}
-	if got := stderr.String(); !strings.Contains(got, "Can't find service: input") {
+	if got := stderr.String(); !strings.Contains(got, "Can't find service: "+binderservice.InputServiceName) {
 		t.Fatalf("stderr = %q", got)
 	}
 }
@@ -166,7 +167,7 @@ func TestRunTransactFailureUsesStatusExitCode(t *testing.T) {
 	if code != int(api.StatusPermissionDenied) {
 		t.Fatalf("Run code = %d, want %d", code, api.StatusPermissionDenied)
 	}
-	if got := stdout.String(); !strings.Contains(got, "Failure calling service input") || !strings.Contains(got, "operation not permitted") {
+	if got := stdout.String(); !strings.Contains(got, "Failure calling service "+binderservice.InputServiceName) || !strings.Contains(got, "operation not permitted") {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -229,7 +230,7 @@ func TestRunCheckServiceError(t *testing.T) {
 	if code != unavailableExitCode {
 		t.Fatalf("Run code = %d, want %d", code, unavailableExitCode)
 	}
-	if got := stderr.String(); !strings.Contains(got, "Failure finding service input: lookup failed") {
+	if got := stderr.String(); !strings.Contains(got, "Failure finding service "+binderservice.InputServiceName+": lookup failed") {
 		t.Fatalf("stderr = %q", got)
 	}
 }
@@ -242,7 +243,7 @@ func TestRunBuildShellCommandRequestFailure(t *testing.T) {
 		},
 	}
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"tap"}, Options{
+	code := Run(context.Background(), []string{"tap", "1", "2"}, Options{
 		ServiceManager: sm,
 		Error:          &stderr,
 		InFD:           -1,
@@ -257,6 +258,33 @@ func TestRunBuildShellCommandRequestFailure(t *testing.T) {
 	}
 }
 
+func TestRunInvalidArguments(t *testing.T) {
+	service := &fakeShellService{}
+	sm := fakeServiceManager{
+		checkService: func(ctx context.Context, name string) (api.Binder, error) {
+			return service, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tap"}, Options{
+		ServiceManager: sm,
+		Output:         &stdout,
+		Error:          &stderr,
+		InFD:           int(os.Stdin.Fd()),
+		OutFD:          int(os.Stdout.Fd()),
+		ErrFD:          int(os.Stderr.Fd()),
+	})
+	if code != 1 {
+		t.Fatalf("Run code = %d, want 1", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "expected 2 numeric arguments") {
+		t.Fatalf("stderr = %q", got)
+	}
+}
+
 func TestProcessExitCode(t *testing.T) {
 	if got := ProcessExitCode(0x1234); got != 0x34 {
 		t.Fatalf("ProcessExitCode = %#x, want %#x", got, 0x34)
@@ -266,47 +294,6 @@ func TestProcessExitCode(t *testing.T) {
 func TestWriterOrDiscardNil(t *testing.T) {
 	if got := writerOrDiscard(nil); got != io.Discard {
 		t.Fatalf("writerOrDiscard(nil) = %v, want io.Discard", got)
-	}
-}
-
-func TestWriteShellCommandRequestNilParcel(t *testing.T) {
-	err := writeShellCommandRequest(nil, 0, 1, 2, []string{"tap"})
-	if !errors.Is(err, api.ErrBadParcelable) {
-		t.Fatalf("writeShellCommandRequest err = %v, want ErrBadParcelable", err)
-	}
-}
-
-func TestWriteShellCommandRequestInjectedErrors(t *testing.T) {
-	oldWriteInt32 := parcelWriteInt32
-	oldWriteString := parcelWriteString
-	oldWriteBinder := parcelWriteNullStrongBinder
-	t.Cleanup(func() {
-		parcelWriteInt32 = oldWriteInt32
-		parcelWriteString = oldWriteString
-		parcelWriteNullStrongBinder = oldWriteBinder
-	})
-
-	parcelWriteInt32 = func(p *api.Parcel, v int32) error {
-		return errors.New("int32 fail")
-	}
-	if err := writeShellCommandRequest(api.NewParcel(), 0, 1, 2, nil); err == nil || !strings.Contains(err.Error(), "int32 fail") {
-		t.Fatalf("writeShellCommandRequest int32 err = %v, want int32 fail", err)
-	}
-
-	parcelWriteInt32 = oldWriteInt32
-	parcelWriteString = func(p *api.Parcel, v string) error {
-		return errors.New("string fail")
-	}
-	if err := writeShellCommandRequest(api.NewParcel(), 0, 1, 2, []string{"tap"}); err == nil || !strings.Contains(err.Error(), "string fail") {
-		t.Fatalf("writeShellCommandRequest string err = %v, want string fail", err)
-	}
-
-	parcelWriteString = oldWriteString
-	parcelWriteNullStrongBinder = func(p *api.Parcel) error {
-		return errors.New("binder fail")
-	}
-	if err := writeShellCommandRequest(api.NewParcel(), 0, 1, 2, nil); err == nil || !strings.Contains(err.Error(), "binder fail") {
-		t.Fatalf("writeShellCommandRequest binder err = %v, want binder fail", err)
 	}
 }
 
