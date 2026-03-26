@@ -2,6 +2,8 @@ package binder
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 )
 
@@ -38,6 +40,30 @@ func DispatchLocalHandler(ctx context.Context, handler Handler, serial sync.Lock
 		return reply, nil
 	case PingTransaction:
 		return NewParcel(), nil
+	case DumpTransaction:
+		fd, args, err := readDumpRequest(data)
+		if err != nil {
+			return nil, err
+		}
+		if dumper, ok := handler.(DumpHandler); ok {
+			if err := dumper.Dump(ctx, fd.FD(), args); err != nil {
+				return nil, err
+			}
+		}
+		return NewParcel(), nil
+	case DebugPIDTransaction:
+		pid := int32(os.Getpid())
+		if provider, ok := handler.(DebugPIDHandler); ok {
+			pid = provider.DebugPID()
+		}
+		reply := NewParcel()
+		if err := reply.WriteInt32(pid); err != nil {
+			return nil, err
+		}
+		if err := reply.SetPosition(0); err != nil {
+			return nil, err
+		}
+		return reply, nil
 	case GetInterfaceVersionTransaction:
 		provider, ok := handler.(InterfaceVersionProvider)
 		if !ok {
@@ -80,4 +106,27 @@ func DispatchLocalHandler(ctx context.Context, handler Handler, serial sync.Lock
 		return nil, err
 	}
 	return reply, nil
+}
+
+func readDumpRequest(p *Parcel) (FileDescriptor, []string, error) {
+	fd, err := p.ReadFileDescriptor()
+	if err != nil {
+		return FileDescriptor{}, nil, err
+	}
+	count, err := p.ReadInt32()
+	if err != nil {
+		return FileDescriptor{}, nil, err
+	}
+	if count < 0 {
+		return FileDescriptor{}, nil, fmt.Errorf("%w: invalid dump arg count %d", ErrBadParcelable, count)
+	}
+	args := make([]string, 0, count)
+	for i := int32(0); i < count; i++ {
+		arg, err := p.ReadString()
+		if err != nil {
+			return FileDescriptor{}, nil, err
+		}
+		args = append(args, arg)
+	}
+	return fd, args, nil
 }

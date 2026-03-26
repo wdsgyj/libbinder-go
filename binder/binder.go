@@ -23,6 +23,11 @@ type Binder interface {
 	Close() error
 }
 
+// DebugHandleProvider exposes a kernel Binder handle for diagnostics.
+type DebugHandleProvider interface {
+	DebugHandle() (uint32, bool)
+}
+
 // BinderProvider exposes the underlying low-level Binder object for generated
 // typed interfaces and adapters.
 type BinderProvider interface {
@@ -45,6 +50,16 @@ type ParcelBinderMarshaler interface {
 type Handler interface {
 	Descriptor() string
 	HandleTransact(ctx context.Context, code uint32, data *Parcel) (*Parcel, error)
+}
+
+// DumpHandler handles the reserved Binder dump transaction for a local binder.
+type DumpHandler interface {
+	Dump(ctx context.Context, fd int, args []string) error
+}
+
+// DebugPIDHandler handles the reserved Binder debug PID transaction for a local binder.
+type DebugPIDHandler interface {
+	DebugPID() int32
 }
 
 // HandlerFunc adapts a function to Handler when paired with a descriptor.

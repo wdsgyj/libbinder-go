@@ -11,6 +11,17 @@
   - 覆盖 `list` / `check` / `call`
   - `call` 支持 `i32` / `i64` / `f` / `d` / `s16` / `null` / `fd` / `nfd` / `afd` / `intent`
   - 新增单测覆盖参数编解码、FD 传递、intent 编码、reply dump 与帮助输出
+- 增加 AOSP `frameworks/native/cmds/dumpsys` 的 Go 实现：
+  - `cmd/dumpsys`
+  - 覆盖 `-l` / `-t` / `-T` / `--priority` / `--proto` / `--skip`
+  - 覆盖 `--dump` / `--pid` / `--stability` / `--thread` / `--clients`
+  - 新增单测覆盖参数解析、辅助 dump 类型、timeout、错误继续执行语义
+- 增加 `dumpsys` 依赖的 Binder/runtime 调试能力：
+  - `binder.DumpBinder`
+  - `binder.GetDebugPID`
+  - `binder.DebugHandleProvider`
+  - local transaction 对 `DUMP_TRANSACTION` / `DEBUG_PID_TRANSACTION` 的保留处理
+  - `internal/binderdebug` 对 Android binder proc / transactions 日志的解析
 
 ### Changed
 
@@ -23,6 +34,33 @@
   - `cmds/cmd/cmd` 增加 standalone 二进制入口
   - `binder` 常量补充 `DUMP_TRANSACTION` / `SHELL_COMMAND_TRANSACTION`
   - 新增 host + Android aarch64 模拟器测试覆盖 `cmd` 的主流程与边界行为
+- `cmd/dumpsys` 的 worker 执行语义现在与上游更接近：
+  - `--thread` / `--clients` 出错时会输出 `NAME_NOT_FOUND` 等状态文本
+  - 单项失败不会中断后续 dump 项
+  - `stdout` 提前关闭时，非 timeout 场景会等待 worker 收尾，避免额外的 driver close 噪音
+- `internal/binderdebug` 的 proc / transactions 打开顺序改为贴近上游：
+  - 直接按 binderfs -> debugfs 顺序尝试打开
+  - fallback 路径失败时以最后一次打开错误为准
+
+### Testing
+
+- 宿主机：
+  - `go test ./...`
+- 新增单测覆盖：
+  - `cmd/dumpsys`
+  - `internal/binderdebug`
+  - `binder/dump_test.go`
+
+### Verification
+
+- Android arm64 构建：
+  - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-dumpsys ./cmd/dumpsys`
+- 真机验证：
+  - `-l`
+  - `--pid activity`
+  - `--thread activity`
+  - `--clients activity`
+  - `-T 2000 activity activities`
 
 ## 0.0.7 - 2026-03-26
 

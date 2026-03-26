@@ -82,6 +82,10 @@ func (b *rpcLocalBinder) StabilityLevel() api.StabilityLevel {
 	return b.stability
 }
 
+func (b *rpcLocalBinder) DebugHandle() (uint32, bool) {
+	return 0, false
+}
+
 type rpcRemoteBinder struct {
 	conn      *RPCConn
 	handle    uint32
@@ -190,6 +194,10 @@ func (b *rpcRemoteBinder) StabilityLevel() api.StabilityLevel {
 		return api.StabilityUndeclared
 	}
 	return b.stability
+}
+
+func (b *rpcRemoteBinder) DebugHandle() (uint32, bool) {
+	return 0, false
 }
 
 func (b *rpcRemoteBinder) checkOpen() error {

@@ -3,7 +3,9 @@ package kernel
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -234,6 +236,73 @@ func TestDispatchLocalTransactionStableBuiltins(t *testing.T) {
 	}
 }
 
+func TestDispatchLocalTransactionDumpAndDebugPID(t *testing.T) {
+	backend := NewBackend(DefaultDriverPath)
+
+	handler := dumpDebugHandler{
+		StaticHandler: api.StaticHandler{
+			DescriptorName: "libbinder.go.test.IDump",
+			Handle: func(ctx context.Context, code uint32, data *api.Parcel) (*api.Parcel, error) {
+				return nil, api.ErrUnknownTransaction
+			},
+		},
+		pid: 555,
+	}
+
+	node, err := backend.RegisterLocalNode(handler, false)
+	if err != nil {
+		t.Fatalf("RegisterLocalNode: %v", err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer func() { _ = r.Close(); _ = w.Close() }()
+
+	req := api.NewParcel()
+	if err := req.WriteFileDescriptor(api.NewFileDescriptor(int(w.Fd()))); err != nil {
+		t.Fatalf("WriteFileDescriptor: %v", err)
+	}
+	if err := req.WriteInt32(2); err != nil {
+		t.Fatalf("WriteInt32: %v", err)
+	}
+	if err := req.WriteString("-a"); err != nil {
+		t.Fatalf("WriteString(-a): %v", err)
+	}
+	if err := req.WriteString("--proto"); err != nil {
+		t.Fatalf("WriteString(--proto): %v", err)
+	}
+	if err := req.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	if _, err := backend.DispatchLocalTransaction(context.Background(), node.ID, api.DumpTransaction, req, 0); err != nil {
+		t.Fatalf("DispatchLocalTransaction(dump): %v", err)
+	}
+	_ = w.Close()
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(data) != "dump:-a,--proto\n" {
+		t.Fatalf("dump output = %q, want dump:-a,--proto", string(data))
+	}
+
+	reply, err := backend.DispatchLocalTransaction(context.Background(), node.ID, api.DebugPIDTransaction, api.NewParcel(), 0)
+	if err != nil {
+		t.Fatalf("DispatchLocalTransaction(debug pid): %v", err)
+	}
+	pid, err := reply.ReadInt32()
+	if err != nil {
+		t.Fatalf("ReadInt32: %v", err)
+	}
+	if pid != 555 {
+		t.Fatalf("debug pid = %d, want 555", pid)
+	}
+}
+
 type stableTestHandler struct {
 	api.StaticHandler
 	version int32
@@ -246,4 +315,18 @@ func (h stableTestHandler) InterfaceVersion() int32 {
 
 func (h stableTestHandler) InterfaceHash() string {
 	return h.hash
+}
+
+type dumpDebugHandler struct {
+	api.StaticHandler
+	pid int32
+}
+
+func (h dumpDebugHandler) Dump(ctx context.Context, fd int, args []string) error {
+	_, err := io.WriteString(os.NewFile(uintptr(fd), "dump"), "dump:"+strings.Join(args, ",")+"\n")
+	return err
+}
+
+func (h dumpDebugHandler) DebugPID() int32 {
+	return h.pid
 }

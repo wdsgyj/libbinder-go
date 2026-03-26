@@ -133,6 +133,13 @@ func (b *remoteBinder) StabilityLevel() api.StabilityLevel {
 	return b.stability
 }
 
+func (b *remoteBinder) DebugHandle() (uint32, bool) {
+	if b == nil || b.handle == 0 {
+		return 0, false
+	}
+	return b.handle, true
+}
+
 func (b *remoteBinder) Close() error {
 	return b.close(true)
 }

@@ -107,6 +107,10 @@ func (b *localBinder) StabilityLevel() api.StabilityLevel {
 	return b.stability
 }
 
+func (b *localBinder) DebugHandle() (uint32, bool) {
+	return 0, false
+}
+
 func (b *localBinder) checkOpen() error {
 	if b == nil || b.conn == nil || b.conn.rt == nil || b.nodeID == 0 {
 		return api.ErrUnsupported

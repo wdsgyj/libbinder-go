@@ -29,6 +29,11 @@
   - `cmd/service`
   - 支持 `list`、`check`、`call`
   - `call` 支持 `i32`、`i64`、`f`、`d`、`s16`、`null`、`fd`、`nfd`、`afd`、`intent`
+- AOSP `dumpsys` 的 Go 实现
+  - `cmd/dumpsys`
+  - 支持 `-l`、`-t`、`-T`、`--priority`、`--proto`、`--skip`
+  - 支持 `--dump`、`--pid`、`--stability`、`--thread`、`--clients`
+  - 复刻 pipe + worker goroutine + timeout 的客户端侧 dump 控制语义
 - 示例与文档
   - `demo/echo` 提供最小 server/client 通信例子
   - `doc/` 下保存分析、路线图、实现计划和架构文档
@@ -56,7 +61,9 @@
 ├── binder/           # 对外公开 API 类型
 ├── cmd/
 │   ├── aidlgen/      # AIDL -> Go 代码生成器
-│   └── cmd/          # AOSP cmd 的 Go 实现
+│   ├── cmd/          # AOSP cmd 的 Go 实现
+│   ├── dumpsys/      # AOSP dumpsys 的 Go 实现
+│   └── service/      # AOSP service 的 Go 实现
 ├── demo/
 │   └── echo/         # 最小 Binder server/client 示例
 ├── doc/              # 设计、分析、路线图、架构文档
@@ -190,7 +197,43 @@ adb shell '/data/local/tmp/libbinder-go-service call activity 1 s16 hello'
 - 它和 AOSP 原版一样，要求你自己知道 transaction code 和参数布局
 - 不建议在非 Android 主机上直接 `go run ./cmd/service ...`
 
-### 5. 运行 echo demo
+### 5. 构建并运行 `dumpsys`
+
+为 Android arm64 构建：
+
+```bash
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-dumpsys ./cmd/dumpsys
+```
+
+推送到设备并列出服务：
+
+```bash
+adb push /tmp/libbinder-go-dumpsys /data/local/tmp/libbinder-go-dumpsys
+adb shell chmod 755 /data/local/tmp/libbinder-go-dumpsys
+adb shell /data/local/tmp/libbinder-go-dumpsys -l
+```
+
+查询调试信息：
+
+```bash
+adb shell /data/local/tmp/libbinder-go-dumpsys --pid activity
+adb shell /data/local/tmp/libbinder-go-dumpsys --thread activity
+adb shell /data/local/tmp/libbinder-go-dumpsys --clients activity
+```
+
+执行一次实际 dump：
+
+```bash
+adb shell '/data/local/tmp/libbinder-go-dumpsys -T 2000 activity activities'
+```
+
+说明：
+
+- `dumpsys` 强依赖 Android Binder / ServiceManager 与 binder debug 日志环境
+- `--thread` / `--clients` 的结果是否可用，取决于设备是否暴露可读的 binder debug 信息
+- 不建议在非 Android 主机上直接 `go run ./cmd/dumpsys ...`
+
+### 6. 运行 echo demo
 
 构建：
 
@@ -233,4 +276,6 @@ ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDR
 - [doc/libbinder-go-runtime-internal-architecture.md](./doc/libbinder-go-runtime-internal-architecture.md)
 - [doc/cmd-tool-analysis.md](./doc/cmd-tool-analysis.md)
 - [doc/service-tool-analysis.md](./doc/service-tool-analysis.md)
+- [doc/servicemanager-analysis.md](./doc/servicemanager-analysis.md)
+- [doc/dumpsys-analysis.md](./doc/dumpsys-analysis.md)
 - [demo/echo/README.md](./demo/echo/README.md)
