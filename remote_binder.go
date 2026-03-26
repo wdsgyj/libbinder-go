@@ -88,10 +88,13 @@ func (b *remoteBinder) Transact(ctx context.Context, code uint32, data *api.Parc
 	if err := b.checkOpen(); err != nil {
 		return nil, err
 	}
+	if err := api.EnforceTransactStability(ctx, b, code, flags, b.conn.requiredStability); err != nil {
+		return nil, err
+	}
 	if err := b.conn.ensureHandleAcquired(ctx, b.handle); err != nil {
 		return nil, err
 	}
-	reply, err := b.conn.rt.TransactHandle(ctx, b.handle, code, data, flags)
+	reply, err := b.conn.rt.TransactHandle(ctx, b.handle, code, data, api.PrepareTransactFlags(flags))
 	if err != nil {
 		return nil, mapRuntimeError(err)
 	}

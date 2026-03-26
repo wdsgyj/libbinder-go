@@ -2,6 +2,7 @@ package libbinder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -42,7 +43,10 @@ func (b *rpcLocalBinder) Transact(ctx context.Context, code uint32, data *api.Pa
 	if b == nil || b.conn == nil {
 		return nil, api.ErrUnsupported
 	}
-	return b.conn.dispatchExport(ctx, b.handle, code, data, flags, true)
+	if err := api.EnforceTransactStability(ctx, b, code, flags, b.conn.requiredStability); err != nil {
+		return nil, err
+	}
+	return b.conn.dispatchExport(ctx, b.handle, code, data, api.PrepareTransactFlags(flags), true)
 }
 
 func (b *rpcLocalBinder) WatchDeath(ctx context.Context) (api.Subscription, error) {
@@ -84,6 +88,7 @@ type rpcRemoteBinder struct {
 	stability api.StabilityLevel
 
 	closed atomic.Bool
+	dead   atomic.Bool
 
 	descriptorMu     sync.RWMutex
 	descriptor       string
@@ -141,11 +146,17 @@ func (b *rpcRemoteBinder) Transact(ctx context.Context, code uint32, data *api.P
 	if err := b.checkOpen(); err != nil {
 		return nil, err
 	}
-	return b.conn.transactRemote(ctx, b.handle, code, data, flags)
+	if err := api.EnforceTransactStability(ctx, b, code, flags, b.conn.requiredStability); err != nil {
+		return nil, err
+	}
+	return b.conn.transactRemote(ctx, b.handle, code, data, api.PrepareTransactFlags(flags))
 }
 
 func (b *rpcRemoteBinder) WatchDeath(ctx context.Context) (api.Subscription, error) {
-	return nil, api.ErrUnsupported
+	if err := b.checkOpen(); err != nil && !errors.Is(err, api.ErrDeadObject) {
+		return nil, err
+	}
+	return b.conn.watchDeath(ctx, b.handle)
 }
 
 func (b *rpcRemoteBinder) Close() error {
@@ -188,8 +199,14 @@ func (b *rpcRemoteBinder) checkOpen() error {
 	if b.closed.Load() {
 		return api.ErrClosed
 	}
+	if b.dead.Load() {
+		return api.ErrDeadObject
+	}
 	select {
 	case <-b.conn.closed:
+		if b.dead.Load() {
+			return api.ErrDeadObject
+		}
 		return api.ErrClosed
 	default:
 		return nil

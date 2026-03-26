@@ -1,6 +1,9 @@
 package binder
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // StabilityLevel identifies the Binder stability contract attached to a Binder object.
 type StabilityLevel int32
@@ -21,6 +24,8 @@ type StabilityProvider interface {
 type ParcelBinderStabilityMarshaler interface {
 	WriteBinderToParcelWithStability(p *Parcel, level StabilityLevel) error
 }
+
+type requiredStabilityContextKey struct{}
 
 func DefaultLocalStability() StabilityLevel {
 	return StabilitySystem
@@ -59,6 +64,58 @@ func CheckStability(provided, required StabilityLevel) bool {
 		return false
 	}
 	return int32(provided)&int32(required) == int32(required)
+}
+
+// WithRequiredStability overrides the required stability context for outgoing Binder calls.
+func WithRequiredStability(ctx context.Context, level StabilityLevel) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, requiredStabilityContextKey{}, level)
+}
+
+// RequiredStabilityFromContext reports a per-call stability override from ctx.
+func RequiredStabilityFromContext(ctx context.Context) (StabilityLevel, bool) {
+	if ctx == nil {
+		return StabilityUndeclared, false
+	}
+	level, ok := ctx.Value(requiredStabilityContextKey{}).(StabilityLevel)
+	return level, ok
+}
+
+// RequiredStabilityForTransact resolves the required stability for a transaction.
+func RequiredStabilityForTransact(ctx context.Context, flags Flags, defaultLevel StabilityLevel) StabilityLevel {
+	if flags&FlagPrivateVendor != 0 {
+		return StabilityVendor
+	}
+	if level, ok := RequiredStabilityFromContext(ctx); ok && level != StabilityUndeclared {
+		return level
+	}
+	if defaultLevel == StabilityUndeclared {
+		return DefaultLocalStability()
+	}
+	return defaultLevel
+}
+
+// PrepareTransactFlags strips userspace-only flags before hitting the transport.
+func PrepareTransactFlags(flags Flags) Flags {
+	return flags &^ FlagPrivateVendor
+}
+
+// EnforceTransactStability validates that a user transaction is legal for the current context.
+func EnforceTransactStability(ctx context.Context, target Binder, code uint32, flags Flags, defaultLevel StabilityLevel) error {
+	if code < FirstCallTransaction || code > LastCallTransaction {
+		return nil
+	}
+	required := RequiredStabilityForTransact(ctx, flags, defaultLevel)
+	if required == StabilityUndeclared {
+		return nil
+	}
+	provided := BinderStability(target)
+	if CheckStability(provided, required) {
+		return nil
+	}
+	return fmt.Errorf("%w: binder stability %s does not satisfy required %s", &StatusCodeError{Code: StatusBadType}, provided, required)
 }
 
 // BinderStability returns the declared stability label for a Binder.
@@ -108,6 +165,22 @@ func WithStability(handler Handler, level StabilityLevel) Handler {
 	default:
 		return stableHandler{handler: handler, level: level}
 	}
+}
+
+func ForceDowngradeToLocalStability(handler Handler) Handler {
+	return WithStability(handler, DefaultLocalStability())
+}
+
+func ForceDowngradeToSystemStability(handler Handler) Handler {
+	return WithStability(handler, StabilitySystem)
+}
+
+func ForceDowngradeToVendorStability(handler Handler) Handler {
+	return WithStability(handler, StabilityVendor)
+}
+
+func RequiresVINTFDeclaration(level StabilityLevel) bool {
+	return CheckStability(level, StabilityVINTF)
 }
 
 type stableHandler struct {

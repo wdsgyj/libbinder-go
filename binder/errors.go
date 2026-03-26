@@ -8,6 +8,7 @@ import (
 var (
 	ErrDeadObject         = errors.New("binder: dead object")
 	ErrFailedTxn          = errors.New("binder: failed transaction")
+	ErrBadType            = errors.New("binder: bad type")
 	ErrBadParcelable      = errors.New("binder: bad parcelable")
 	ErrPermissionDenied   = errors.New("binder: permission denied")
 	ErrUnsupported        = errors.New("binder: unsupported operation")
@@ -54,6 +55,8 @@ func (e *StatusCodeError) Is(target error) bool {
 		return e.Code == StatusDeadObject
 	case ErrFailedTxn:
 		return e.Code == StatusFailedTransaction
+	case ErrBadType:
+		return e.Code == StatusBadType
 	case ErrPermissionDenied:
 		return e.Code == StatusPermissionDenied
 	case ErrUnknownTransaction:

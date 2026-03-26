@@ -31,6 +31,7 @@ type rpcFrameKind string
 const (
 	rpcFrameTransact rpcFrameKind = "transact"
 	rpcFrameReply    rpcFrameKind = "reply"
+	rpcFrameObituary rpcFrameKind = "obituary"
 )
 
 type rpcFrame struct {
@@ -69,9 +70,14 @@ type RPCDebugSnapshot struct {
 	ServiceManager  ServiceManagerSnapshot
 }
 
+type RPCConfig struct {
+	RequiredStability api.StabilityLevel
+}
+
 type RPCConn struct {
-	conn net.Conn
-	role rpcRole
+	conn              net.Conn
+	role              rpcRole
+	requiredStability api.StabilityLevel
 
 	enc     *gob.Encoder
 	dec     *gob.Decoder
@@ -94,8 +100,9 @@ type RPCConn struct {
 	nextExportID   uint32
 	localRoleStart uint32
 
-	serviceRegistry *rpcServiceRegistry
-	serviceManager  interface {
+	serviceRegistry       *rpcServiceRegistry
+	serviceManagerHandler *rpcServiceManagerHandler
+	serviceManager        interface {
 		api.ServiceManager
 		debugSnapshot() serviceManagerDebugSnapshot
 	}
@@ -103,31 +110,47 @@ type RPCConn struct {
 	framePool sync.Pool
 	frameGets atomic.Uint64
 	framePuts atomic.Uint64
+
+	deathMu      sync.Mutex
+	deathWatches map[uint32]map[*managedSubscription]struct{}
 }
 
 func DialRPC(conn net.Conn) (*RPCConn, error) {
-	return newRPCConn(conn, rpcRoleClient)
+	return DialRPCWithConfig(conn, RPCConfig{})
 }
 
 func ServeRPC(conn net.Conn) (*RPCConn, error) {
-	return newRPCConn(conn, rpcRoleServer)
+	return ServeRPCWithConfig(conn, RPCConfig{})
 }
 
-func newRPCConn(conn net.Conn, role rpcRole) (*RPCConn, error) {
+func DialRPCWithConfig(conn net.Conn, cfg RPCConfig) (*RPCConn, error) {
+	return newRPCConn(conn, rpcRoleClient, cfg)
+}
+
+func ServeRPCWithConfig(conn net.Conn, cfg RPCConfig) (*RPCConn, error) {
+	return newRPCConn(conn, rpcRoleServer, cfg)
+}
+
+func newRPCConn(conn net.Conn, role rpcRole, cfg RPCConfig) (*RPCConn, error) {
 	if conn == nil {
 		return nil, api.ErrUnsupported
 	}
 
 	c := &RPCConn{
-		conn:            conn,
-		role:            role,
-		enc:             gob.NewEncoder(conn),
-		dec:             gob.NewDecoder(conn),
-		closed:          make(chan struct{}),
-		pending:         make(map[uint64]chan rpcFrame),
-		exports:         make(map[uint32]*rpcExport),
-		imports:         make(map[uint32]*rpcRemoteBinder),
-		serviceRegistry: newRPCServiceRegistry(),
+		conn:              conn,
+		role:              role,
+		requiredStability: cfg.RequiredStability,
+		enc:               gob.NewEncoder(conn),
+		dec:               gob.NewDecoder(conn),
+		closed:            make(chan struct{}),
+		pending:           make(map[uint64]chan rpcFrame),
+		exports:           make(map[uint32]*rpcExport),
+		imports:           make(map[uint32]*rpcRemoteBinder),
+		serviceRegistry:   newRPCServiceRegistry(),
+		deathWatches:      make(map[uint32]map[*managedSubscription]struct{}),
+	}
+	if c.requiredStability == api.StabilityUndeclared {
+		c.requiredStability = api.DefaultLocalStability()
 	}
 	c.framePool.New = func() any {
 		return &rpcFrame{}
@@ -137,7 +160,8 @@ func newRPCConn(conn net.Conn, role rpcRole) (*RPCConn, error) {
 	case rpcRoleServer:
 		c.localRoleStart = 1
 		c.nextExportID = rpcServerExportStart
-		c.exportWithHandle(rpcServerServiceManagerHandle, newRPCServiceManagerHandler(c), api.DefaultLocalStability(), false)
+		c.serviceManagerHandler = newRPCServiceManagerHandler(c)
+		c.exportWithHandle(rpcServerServiceManagerHandle, c.serviceManagerHandler, api.DefaultLocalStability(), false)
 		c.serviceManager = &rpcLocalServiceManager{conn: c}
 	case rpcRoleClient:
 		c.localRoleStart = 2
@@ -231,6 +255,21 @@ func (c *RPCConn) registerLocalHandler(handler api.Handler, serial bool) (api.Bi
 	c.exports[handle] = export
 	c.exportsMu.Unlock()
 	return newRPCLocalBinder(c, handle, export.stability), nil
+}
+
+func (c *RPCConn) unregisterLocalHandle(handle uint32) error {
+	if c == nil || handle == 0 || handle == rpcServerServiceManagerHandle {
+		return nil
+	}
+	c.exportsMu.Lock()
+	delete(c.exports, handle)
+	c.exportsMu.Unlock()
+	frame := c.getFrame()
+	frame.Kind = rpcFrameObituary
+	frame.Handle = handle
+	err := c.writeFrame(frame)
+	c.putFrame(frame)
+	return err
 }
 
 func (c *RPCConn) exportWithHandle(handle uint32, handler api.Handler, stability api.StabilityLevel, serial bool) {
@@ -413,6 +452,8 @@ func (c *RPCConn) readLoop() {
 			}
 		case rpcFrameTransact:
 			go c.handleTransactFrame(frame)
+		case rpcFrameObituary:
+			c.noteRemoteDeath(frame.Handle)
 		default:
 			c.shutdown(fmt.Errorf("%w: unknown rpc frame kind %q", api.ErrBadParcelable, frame.Kind))
 			return
@@ -494,6 +535,13 @@ func (c *RPCConn) clearPending(id uint64) {
 
 func (c *RPCConn) shutdown(err error) {
 	c.closeOnce.Do(func() {
+		c.noteAllRemoteDeaths()
+		if c.serviceRegistry != nil {
+			c.serviceRegistry.clearClientState()
+		}
+		if c.serviceManagerHandler != nil {
+			c.serviceManagerHandler.closeAllRemoteSubscriptions()
+		}
 		c.errMu.Lock()
 		c.closeErr = err
 		c.errMu.Unlock()

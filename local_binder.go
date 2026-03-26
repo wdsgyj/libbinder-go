@@ -48,6 +48,9 @@ func (b *localBinder) Transact(ctx context.Context, code uint32, data *api.Parce
 	if err := b.checkOpen(); err != nil {
 		return nil, err
 	}
+	if err := api.EnforceTransactStability(ctx, b, code, flags, b.conn.requiredStability); err != nil {
+		return nil, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -60,7 +63,7 @@ func (b *localBinder) Transact(ctx context.Context, code uint32, data *api.Parce
 		return nil, err
 	}
 
-	reply, err := b.conn.rt.Kernel.DispatchLocalTransaction(ctx, b.nodeID, code, data, uint32(flags))
+	reply, err := b.conn.rt.Kernel.DispatchLocalTransaction(ctx, b.nodeID, code, data, uint32(api.PrepareTransactFlags(flags)))
 	if err != nil {
 		return nil, mapRuntimeError(err)
 	}

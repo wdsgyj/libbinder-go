@@ -77,6 +77,43 @@ func TestStabilityHelpers(t *testing.T) {
 	if got := StabilityVendor.String(); got != "vendor" {
 		t.Fatalf("StabilityVendor.String() = %q, want vendor", got)
 	}
+	if !RequiresVINTFDeclaration(StabilityVINTF) {
+		t.Fatal("RequiresVINTFDeclaration(vintf) = false, want true")
+	}
+}
+
+func TestRequiredStabilityForTransact(t *testing.T) {
+	if got := RequiredStabilityForTransact(context.Background(), FlagPrivateVendor, StabilitySystem); got != StabilityVendor {
+		t.Fatalf("RequiredStabilityForTransact(private vendor) = %v, want %v", got, StabilityVendor)
+	}
+	ctx := WithRequiredStability(context.Background(), StabilityVINTF)
+	if got := RequiredStabilityForTransact(ctx, FlagNone, StabilitySystem); got != StabilityVINTF {
+		t.Fatalf("RequiredStabilityForTransact(ctx override) = %v, want %v", got, StabilityVINTF)
+	}
+	if got := PrepareTransactFlags(FlagOneway | FlagPrivateVendor); got != FlagOneway {
+		t.Fatalf("PrepareTransactFlags = %v, want %v", got, FlagOneway)
+	}
+}
+
+func TestEnforceTransactStability(t *testing.T) {
+	binder := stableQueryBinder{
+		version: 1,
+		hash:    "hash-1",
+		level:   StabilityVendor,
+	}
+
+	if err := EnforceTransactStability(context.Background(), binder, FirstCallTransaction, FlagNone, StabilitySystem); err == nil {
+		t.Fatal("EnforceTransactStability = nil, want BAD_TYPE error")
+	} else {
+		var statusErr *StatusCodeError
+		if !errors.As(err, &statusErr) || statusErr.Code != StatusBadType {
+			t.Fatalf("EnforceTransactStability error = %v, want StatusBadType", err)
+		}
+	}
+
+	if err := EnforceTransactStability(WithRequiredStability(context.Background(), StabilityVendor), binder, FirstCallTransaction, FlagNone, StabilitySystem); err != nil {
+		t.Fatalf("EnforceTransactStability(vendor override): %v", err)
+	}
 }
 
 func TestWithStabilityPreservesStableProviders(t *testing.T) {
@@ -110,11 +147,16 @@ func TestWithStabilityPreservesStableProviders(t *testing.T) {
 	if hashProvider.InterfaceHash() != "hash-5" {
 		t.Fatalf("InterfaceHash = %q, want hash-5", hashProvider.InterfaceHash())
 	}
+
+	if downgraded, ok := ForceDowngradeToVendorStability(handler).(StabilityProvider); !ok || downgraded.StabilityLevel() != StabilityVendor {
+		t.Fatalf("ForceDowngradeToVendorStability = (%v, %v), want vendor stability", ok, downgraded.StabilityLevel())
+	}
 }
 
 type stableQueryBinder struct {
 	version int32
 	hash    string
+	level   StabilityLevel
 }
 
 type stableTestHandler struct {
@@ -157,3 +199,10 @@ func (b stableQueryBinder) WatchDeath(ctx context.Context) (Subscription, error)
 	return nil, ErrUnsupported
 }
 func (b stableQueryBinder) Close() error { return nil }
+
+func (b stableQueryBinder) StabilityLevel() StabilityLevel {
+	if b.level == StabilityUndeclared {
+		return StabilitySystem
+	}
+	return b.level
+}

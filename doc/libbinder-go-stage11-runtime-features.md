@@ -4,6 +4,10 @@
 
 `0.0.6` 已完成重写路线图中的阶段 11，当前路线图 11 个阶段全部结束。
 
+在此之后，`0.0.7` 继续针对 AOSP 差距补了治理、稳定性强校验与 RPC 生命周期增强，见：
+
+- `doc/libbinder-go-stage12-governance-stability-rpc.md`
+
 这一阶段新增的能力包括：
 
 - stability 标签

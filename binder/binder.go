@@ -10,6 +10,9 @@ const (
 
 	// FlagOneway marks an asynchronous transaction that does not expect a reply.
 	FlagOneway Flags = 1 << 0
+
+	// FlagPrivateVendor requests vendor-context stability validation for a user transaction.
+	FlagPrivateVendor Flags = 0x10000000
 )
 
 // Binder is the public abstraction for a local or remote Binder object.

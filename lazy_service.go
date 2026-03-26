@@ -10,6 +10,7 @@ func AddLazyService(ctx context.Context, sm api.ServiceManager, name string, des
 	if sm == nil {
 		return api.ErrUnsupported
 	}
+	opts = append(opts, api.WithLazyService(true))
 	return sm.AddService(ctx, name, api.NewLazyHandler(descriptor, factory), opts...)
 }
 
@@ -17,5 +18,6 @@ func AddLazyServiceWithMetadata(ctx context.Context, sm api.ServiceManager, name
 	if sm == nil {
 		return api.ErrUnsupported
 	}
+	opts = append(opts, api.WithLazyService(true))
 	return sm.AddService(ctx, name, api.NewLazyHandlerWithMetadata(cfg, factory), opts...)
 }

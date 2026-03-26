@@ -17,3 +17,10 @@ func (r *Runtime) RegisterLocalNode(handler api.Handler, serial bool) (LocalNode
 		Stability: node.Stability,
 	}, nil
 }
+
+func (r *Runtime) UnregisterLocalNode(id uintptr) {
+	if r == nil || r.Kernel == nil {
+		return
+	}
+	r.Kernel.UnregisterLocalNode(id)
+}

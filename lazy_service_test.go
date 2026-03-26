@@ -66,3 +66,43 @@ func (m fakeServiceManager) WaitService(ctx context.Context, name string) (api.B
 func (m fakeServiceManager) AddService(ctx context.Context, name string, handler api.Handler, opts ...api.AddServiceOption) error {
 	return m.addFn(ctx, name, handler, opts...)
 }
+
+func (m fakeServiceManager) ListServices(ctx context.Context, dumpFlags api.DumpFlags) ([]string, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) WatchServiceRegistrations(ctx context.Context, name string, callback api.ServiceRegistrationCallback) (api.Subscription, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) IsDeclared(ctx context.Context, name string) (bool, error) {
+	return false, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) DeclaredInstances(ctx context.Context, iface string) ([]string, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) UpdatableViaApex(ctx context.Context, name string) (*string, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) UpdatableNames(ctx context.Context, apexName string) ([]string, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) ConnectionInfo(ctx context.Context, name string) (*api.ConnectionInfo, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) WatchClients(ctx context.Context, name string, service api.Binder, callback api.ServiceClientCallback) (api.Subscription, error) {
+	return nil, api.ErrUnsupported
+}
+
+func (m fakeServiceManager) TryUnregisterService(ctx context.Context, name string, service api.Binder) error {
+	return api.ErrUnsupported
+}
+
+func (m fakeServiceManager) DebugInfo(ctx context.Context) ([]api.ServiceDebugInfo, error) {
+	return nil, api.ErrUnsupported
+}

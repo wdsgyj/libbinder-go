@@ -59,6 +59,16 @@ func (b *Backend) RegisterLocalNode(handler api.Handler, serial bool) (*LocalNod
 	return node, nil
 }
 
+func (b *Backend) UnregisterLocalNode(id uintptr) {
+	if b == nil || b.locals == nil || id == 0 {
+		return
+	}
+
+	b.locals.mu.Lock()
+	delete(b.locals.nodes, id)
+	b.locals.mu.Unlock()
+}
+
 func (b *Backend) localNodeByID(id uintptr) (*LocalNode, bool) {
 	if b == nil || b.locals == nil || id == 0 {
 		return nil, false

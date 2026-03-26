@@ -2,20 +2,10 @@ package libbinder
 
 import (
 	"context"
-	"errors"
 	"sync"
-	"time"
 
 	api "github.com/wdsgyj/libbinder-go/binder"
-	"github.com/wdsgyj/libbinder-go/internal/kernel"
 	"github.com/wdsgyj/libbinder-go/internal/protocol"
-)
-
-const (
-	serviceManagerDescriptor  = "android.os.IServiceManager"
-	checkServiceTransactionID = kernel.FirstCallTransaction + 2
-	addServiceTransactionID   = kernel.FirstCallTransaction + 4
-	waitServicePollInterval   = 200 * time.Millisecond
 )
 
 type serviceManager struct {
@@ -40,7 +30,7 @@ func (m *serviceManager) CheckService(ctx context.Context, name string) (api.Bin
 		return service, nil
 	}
 
-	reply, err := m.call(ctx, checkServiceTransactionID, name)
+	reply, err := m.callName(ctx, checkServiceTransactionID, name)
 	if err != nil {
 		return nil, err
 	}
@@ -53,39 +43,12 @@ func (m *serviceManager) CheckService(ctx context.Context, name string) (api.Bin
 		return nil, api.ErrNoService
 	}
 	m.storeService(name, service)
+	m.watchCachedService(name, service)
 	return service, nil
 }
 
 func (m *serviceManager) WaitService(ctx context.Context, name string) (api.Binder, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	service, err := m.CheckService(ctx, name)
-	if err == nil {
-		return service, nil
-	}
-	if !errors.Is(err, api.ErrNoService) {
-		return nil, err
-	}
-
-	ticker := time.NewTicker(waitServicePollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			service, err := m.CheckService(ctx, name)
-			if err == nil {
-				return service, nil
-			}
-			if !errors.Is(err, api.ErrNoService) {
-				return nil, err
-			}
-		}
-	}
+	return waitForServiceWithNotifications(ctx, m, name)
 }
 
 func (m *serviceManager) AddService(ctx context.Context, name string, handler api.Handler, opts ...api.AddServiceOption) error {
@@ -109,7 +72,7 @@ func (m *serviceManager) AddService(ctx context.Context, name string, handler ap
 	if err := data.WriteBool(resolved.AllowIsolated); err != nil {
 		return err
 	}
-	if err := data.WriteInt32(int32(resolved.DumpFlags)); err != nil {
+	if err := data.WriteInt32(int32(resolved.EffectiveDumpFlags())); err != nil {
 		return err
 	}
 
@@ -125,7 +88,225 @@ func (m *serviceManager) AddService(ctx context.Context, name string, handler ap
 	return nil
 }
 
-func (m *serviceManager) call(ctx context.Context, code uint32, name string) (*api.Parcel, error) {
+func (m *serviceManager) ListServices(ctx context.Context, dumpFlags api.DumpFlags) ([]string, error) {
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return nil, err
+	}
+	if err := data.WriteInt32(int32(dumpFlags)); err != nil {
+		return nil, err
+	}
+
+	reply, err := m.target.Transact(ctx, listServicesTransactionID, data, api.FlagNone)
+	if err != nil {
+		return nil, err
+	}
+	if reply == nil {
+		return nil, api.ErrBadParcelable
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		return nil, err
+	}
+	return readStringSliceFromParcel(reply)
+}
+
+func (m *serviceManager) WatchServiceRegistrations(ctx context.Context, name string, callback api.ServiceRegistrationCallback) (api.Subscription, error) {
+	if callback == nil {
+		return nil, api.ErrUnsupported
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	sub := newManagedSubscription(ctx, nil)
+	handler := &serviceRegistrationCallbackHandler{
+		sub:      sub,
+		callback: callback,
+	}
+	node, err := m.conn.registerLocalNode(handler, false)
+	if err != nil {
+		return nil, err
+	}
+	callbackBinder := newLocalBinderWithStability(m.conn, node.ID, api.HandlerStability(handler))
+
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := data.WriteString(name); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := data.WriteStrongBinder(callbackBinder); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+
+	reply, err := m.target.Transact(ctx, registerNotifyTransactionID, data, api.FlagNone)
+	if err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+
+	sub.closeFn = func() error {
+		err := m.callNotificationUnregister(context.Background(), unregisterNotifyTxID, name, callbackBinder)
+		cleanupErr := m.conn.unregisterLocalNode(node.ID)
+		if err != nil {
+			return err
+		}
+		return cleanupErr
+	}
+	return sub, nil
+}
+
+func (m *serviceManager) IsDeclared(ctx context.Context, name string) (bool, error) {
+	reply, err := m.callName(ctx, isDeclaredTransactionID, name)
+	if err != nil {
+		return false, err
+	}
+	return reply.ReadBool()
+}
+
+func (m *serviceManager) DeclaredInstances(ctx context.Context, iface string) ([]string, error) {
+	reply, err := m.callName(ctx, declaredInstancesTxID, iface)
+	if err != nil {
+		return nil, err
+	}
+	return readStringSliceFromParcel(reply)
+}
+
+func (m *serviceManager) UpdatableViaApex(ctx context.Context, name string) (*string, error) {
+	reply, err := m.callName(ctx, updatableViaApexTxID, name)
+	if err != nil {
+		return nil, err
+	}
+	return reply.ReadNullableString()
+}
+
+func (m *serviceManager) UpdatableNames(ctx context.Context, apexName string) ([]string, error) {
+	reply, err := m.callName(ctx, updatableNamesTxID, apexName)
+	if err != nil {
+		return nil, err
+	}
+	return readStringSliceFromParcel(reply)
+}
+
+func (m *serviceManager) ConnectionInfo(ctx context.Context, name string) (*api.ConnectionInfo, error) {
+	reply, err := m.callName(ctx, connectionInfoTxID, name)
+	if err != nil {
+		return nil, err
+	}
+	return readNullableConnectionInfoFromParcel(reply)
+}
+
+func (m *serviceManager) WatchClients(ctx context.Context, name string, service api.Binder, callback api.ServiceClientCallback) (api.Subscription, error) {
+	if callback == nil || service == nil {
+		return nil, api.ErrUnsupported
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	sub := newManagedSubscription(ctx, nil)
+	handler := &serviceClientCallbackHandler{
+		sub: sub,
+		callback: func(cbCtx context.Context, update api.ServiceClientUpdate) {
+			update.Name = name
+			callback(cbCtx, update)
+		},
+	}
+	node, err := m.conn.registerLocalNode(handler, false)
+	if err != nil {
+		return nil, err
+	}
+	callbackBinder := newLocalBinderWithStability(m.conn, node.ID, api.HandlerStability(handler))
+
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := data.WriteString(name); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := data.WriteStrongBinder(service); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := data.WriteStrongBinder(callbackBinder); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+
+	reply, err := m.target.Transact(ctx, registerClientCallbackTxID, data, api.FlagNone)
+	if err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, err
+	}
+
+	sub.closeFn = func() error {
+		return m.conn.unregisterLocalNode(node.ID)
+	}
+	return sub, nil
+}
+
+func (m *serviceManager) TryUnregisterService(ctx context.Context, name string, service api.Binder) error {
+	if service == nil {
+		return api.ErrUnsupported
+	}
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return err
+	}
+	if err := data.WriteString(name); err != nil {
+		return err
+	}
+	if err := data.WriteStrongBinder(service); err != nil {
+		return err
+	}
+	reply, err := m.target.Transact(ctx, tryUnregisterServiceTxID, data, api.FlagNone)
+	if err != nil {
+		return err
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	delete(m.cache, name)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *serviceManager) DebugInfo(ctx context.Context) ([]api.ServiceDebugInfo, error) {
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return nil, err
+	}
+	reply, err := m.target.Transact(ctx, debugInfoTransactionID, data, api.FlagNone)
+	if err != nil {
+		return nil, err
+	}
+	if reply == nil {
+		return nil, api.ErrBadParcelable
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		return nil, err
+	}
+	return readServiceDebugInfoSliceFromParcel(reply)
+}
+
+func (m *serviceManager) callName(ctx context.Context, code uint32, name string) (*api.Parcel, error) {
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return nil, err
@@ -145,8 +326,25 @@ func (m *serviceManager) call(ctx context.Context, code uint32, name string) (*a
 	if err := decodeStatusReply(reply); err != nil {
 		return nil, err
 	}
-
 	return reply, nil
+}
+
+func (m *serviceManager) callNotificationUnregister(ctx context.Context, code uint32, name string, callbackBinder api.Binder) error {
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return err
+	}
+	if err := data.WriteString(name); err != nil {
+		return err
+	}
+	if err := data.WriteStrongBinder(callbackBinder); err != nil {
+		return err
+	}
+	reply, err := m.target.Transact(ctx, code, data, api.FlagNone)
+	if err != nil {
+		return err
+	}
+	return decodeStatusReply(reply)
 }
 
 func decodeStatusReply(reply *api.Parcel) error {
@@ -203,6 +401,24 @@ func (m *serviceManager) storeService(name string, service api.Binder) {
 		m.cache = make(map[string]api.Binder)
 	}
 	m.cache[name] = service
+}
+
+func (m *serviceManager) watchCachedService(name string, service api.Binder) {
+	if m == nil || service == nil {
+		return
+	}
+	sub, err := service.WatchDeath(context.Background())
+	if err != nil || sub == nil {
+		return
+	}
+	go func() {
+		<-sub.Done()
+		m.mu.Lock()
+		if m.cache[name] == service {
+			delete(m.cache, name)
+		}
+		m.mu.Unlock()
+	}()
 }
 
 type serviceManagerDebugSnapshot struct {

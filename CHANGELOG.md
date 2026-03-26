@@ -4,6 +4,105 @@
 
 ## Unreleased
 
+## 0.0.7 - 2026-03-26
+
+本版本是在 `0.0.6` 完成既定重写路线图之后，继续针对 AOSP `libbinder` 关键差距做的增强收口，重点补齐：
+
+- `ServiceManager` 高级治理能力
+- stability 强制校验与分区语义
+- RPC 传输辅助与生命周期语义
+
+### Added
+
+- 扩展 `binder.ServiceManager` 公开能力：
+  - `ListServices`
+  - `WatchServiceRegistrations`
+  - `IsDeclared`
+  - `DeclaredInstances`
+  - `UpdatableViaApex`
+  - `UpdatableNames`
+  - `ConnectionInfo`
+  - `WatchClients`
+  - `TryUnregisterService`
+  - `DebugInfo`
+- 增加 `ServiceManager` 治理相关公开类型：
+  - `binder.ConnectionInfo`
+  - `binder.ServiceDebugInfo`
+  - `binder.ServiceMetadata`
+  - `binder.ServiceRegistration`
+  - `binder.ServiceClientUpdate`
+- 增加 stability 强校验公开能力：
+  - `binder.ErrBadType`
+  - `binder.FlagPrivateVendor`
+  - `binder.WithRequiredStability`
+  - `binder.RequiredStabilityForTransact`
+  - `binder.PrepareTransactFlags`
+  - `binder.EnforceTransactStability`
+  - `binder.ForceDowngradeToLocalStability`
+  - `binder.ForceDowngradeToSystemStability`
+  - `binder.ForceDowngradeToVendorStability`
+  - `binder.RequiresVINTFDeclaration`
+- 增加 RPC 连接辅助能力：
+  - `RPCConfig`
+  - `DialRPCWithConfig`
+  - `ServeRPCWithConfig`
+  - `DialRPCNetwork`
+  - `DialRPCTCP`
+  - `DialRPCUnix`
+  - `DialRPCTLS`
+  - `ListenRPC`
+  - `ListenRPCTCP`
+  - `ListenRPCUnix`
+  - `ListenRPCTLS`
+  - `AcceptRPC`
+
+### Changed
+
+- kernel `ServiceManager` 现在按 Android `IServiceManager.aidl` 事务面补齐治理能力：
+  - service list
+  - registration notification
+  - declared instance 查询
+  - APEX / connection info / debug info 查询
+  - client callback / try unregister
+- RPC `ServiceManager` 现在补齐对应治理语义：
+  - 会话内 metadata registry
+  - registration watcher
+  - client watcher
+  - `TryUnregisterService` 约束
+- `WaitService` 从固定轮询改为优先基于 registration notification 等待
+- `ServiceManager` cache 现在会结合 death notification 进行失效清理
+- kernel local binder / kernel remote binder / RPC local binder / RPC remote binder 现在都会在 user transaction 前执行 stability 校验
+- RPC 生命周期语义增强：
+  - `rpcRemoteBinder.WatchDeath`
+  - export 移除时 obituary frame
+  - 连接关闭时 imported binder obituary
+
+### Testing
+
+- 新增 root 包单测覆盖：
+  - `ServiceManager` 高级治理查询
+  - registration notification
+  - client callback 与 `TryUnregisterService`
+  - RPC transport helpers (`tcp` / `unix` / `tls`)
+  - RPC death notification
+  - stability enforcement
+- 新增 binder 包单测覆盖：
+  - `RequiredStabilityForTransact`
+  - `EnforceTransactStability`
+  - force downgrade helper
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
+### Notes
+
+- `TestRPCUnixTransportHelpers` 在 Android 测试环境中因 unix socket 绑定权限限制而跳过。
+- `TestServiceManagerAddServiceAndTransactOnAndroid` 仍受 stock emulator SELinux 限制而跳过。
+
 ## 0.0.6 - 2026-03-26
 
 本版本完成了重写路线图最后剩余的“阶段 11：第二阶段增强能力”，至此：

@@ -14,15 +14,17 @@ const contextManagerHandle uint32 = 0
 
 // Config controls public Binder connection startup.
 type Config struct {
-	DriverPath    string
-	LooperWorkers int
-	ClientWorkers int
+	DriverPath        string
+	LooperWorkers     int
+	ClientWorkers     int
+	RequiredStability api.StabilityLevel
 }
 
 // Conn is the public entry point for talking to the kernel Binder driver.
 type Conn struct {
-	rt *runtime.Runtime
-	sm *serviceManager
+	rt                *runtime.Runtime
+	sm                *serviceManager
+	requiredStability api.StabilityLevel
 }
 
 // Open starts a Binder connection backed by the kernel Binder driver.
@@ -43,7 +45,11 @@ func Open(cfg Config) (*Conn, error) {
 	}
 
 	conn := &Conn{
-		rt: rt,
+		rt:                rt,
+		requiredStability: cfg.RequiredStability,
+	}
+	if conn.requiredStability == api.StabilityUndeclared {
+		conn.requiredStability = api.DefaultLocalStability()
 	}
 	conn.rt.Kernel.SetParcelResolvers(conn.resolveBinderHandle, conn.resolveLocalBinder)
 	conn.rt.Kernel.SetParcelObjectResolvers(conn.resolveBinderObject, conn.resolveLocalBinderObject)
@@ -185,6 +191,14 @@ func (c *Conn) registerLocalNode(handler api.Handler, serial bool) (runtime.Loca
 		return runtime.LocalNodeRef{}, api.ErrUnsupported
 	}
 	return c.rt.RegisterLocalNode(handler, serial)
+}
+
+func (c *Conn) unregisterLocalNode(id uintptr) error {
+	if c == nil || c.rt == nil || id == 0 {
+		return nil
+	}
+	c.rt.UnregisterLocalNode(id)
+	return nil
 }
 
 func (c *Conn) registerLocalHandler(handler api.Handler) (api.Binder, error) {
