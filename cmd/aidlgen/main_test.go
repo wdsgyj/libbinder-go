@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -183,4 +184,92 @@ func TestRunGoLoadsImportedDependencyFiles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "demo", "iservice_aidl.go")); err != nil {
 		t.Fatalf("Stat(iservice_aidl.go): %v", err)
 	}
+}
+
+func TestRunGoAOSPBinderCorpus(t *testing.T) {
+	corpus := aospBinderCorpusFiles(t)
+	if len(corpus) == 0 {
+		t.Skip("AOSP binder corpus not available")
+	}
+
+	outDir := t.TempDir()
+	args := append([]string{"-format", "go", "-out", outDir}, corpus...)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run(args, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	found := 0
+	err := filepath.Walk(outDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, "_aidl.go") {
+			found++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk(%s): %v", outDir, err)
+	}
+	if found == 0 {
+		t.Fatalf("generated file count = %d, want > 0", found)
+	}
+}
+
+func aospBinderCorpusFiles(t *testing.T) []string {
+	t.Helper()
+
+	dirs := []string{
+		filepath.Join("aosp-src", "frameworks", "native", "libs", "binder", "aidl"),
+		filepath.Join("aosp-src", "frameworks", "native", "libs", "binder", "tests"),
+		filepath.Join("aosp-src", "frameworks", "native", "libs", "binder", "tests", "parcel_fuzzer", "parcelables"),
+	}
+
+	var files []string
+	for _, dir := range dirs {
+		info, err := os.Stat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("Stat(%s): %v", dir, err)
+		}
+		if !info.IsDir() {
+			continue
+		}
+		err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if strings.HasSuffix(path, ".aidl") {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Walk(%s): %v", dir, err)
+		}
+	}
+	seen := map[string]struct{}{}
+	unique := files[:0]
+	for _, path := range files {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		unique = append(unique, path)
+	}
+	files = unique
+	sort.Strings(files)
+	return files
 }

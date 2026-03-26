@@ -91,8 +91,10 @@ func (d *DriverManager) EnterLooper() error {
 	if err != nil {
 		return err
 	}
-	if want := uint64(4); bwr.WriteConsumed != want {
-		return fmt.Errorf("kernel: BC_ENTER_LOOPER consumed %d bytes, want %d", bwr.WriteConsumed, want)
+	// Some emulator kernels accept BC_ENTER_LOOPER but report write_consumed=0
+	// instead of the encoded command width. Treat both forms as success.
+	if bwr.WriteConsumed != 0 && bwr.WriteConsumed != 4 {
+		return fmt.Errorf("kernel: BC_ENTER_LOOPER consumed %d bytes, want 0 or 4", bwr.WriteConsumed)
 	}
 	return nil
 }

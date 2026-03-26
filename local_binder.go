@@ -9,14 +9,20 @@ import (
 )
 
 type localBinder struct {
-	conn   *Conn
-	nodeID uintptr
+	conn      *Conn
+	nodeID    uintptr
+	stability api.StabilityLevel
 }
 
 func newLocalBinder(conn *Conn, nodeID uintptr) *localBinder {
+	return newLocalBinderWithStability(conn, nodeID, api.DefaultLocalStability())
+}
+
+func newLocalBinderWithStability(conn *Conn, nodeID uintptr, stability api.StabilityLevel) *localBinder {
 	return &localBinder{
-		conn:   conn,
-		nodeID: nodeID,
+		conn:      conn,
+		nodeID:    nodeID,
+		stability: stability,
 	}
 }
 
@@ -49,6 +55,7 @@ func (b *localBinder) Transact(ctx context.Context, code uint32, data *api.Parce
 		data = api.NewParcel()
 	}
 	data.SetBinderResolvers(b.conn.resolveBinderHandle, b.conn.resolveLocalBinder)
+	data.SetBinderObjectResolvers(b.conn.resolveBinderObject, b.conn.resolveLocalBinderObject)
 	if err := data.SetPosition(0); err != nil {
 		return nil, err
 	}
@@ -59,6 +66,7 @@ func (b *localBinder) Transact(ctx context.Context, code uint32, data *api.Parce
 	}
 	if reply != nil {
 		reply.SetBinderResolvers(b.conn.resolveBinderHandle, b.conn.resolveLocalBinder)
+		reply.SetBinderObjectResolvers(b.conn.resolveBinderObject, b.conn.resolveLocalBinderObject)
 	}
 	return reply, nil
 }
@@ -79,10 +87,21 @@ func (b *localBinder) RegisterLocalHandler(handler api.Handler) (api.Binder, err
 }
 
 func (b *localBinder) WriteBinderToParcel(p *api.Parcel) error {
+	return b.WriteBinderToParcelWithStability(p, b.stability)
+}
+
+func (b *localBinder) WriteBinderToParcelWithStability(p *api.Parcel, level api.StabilityLevel) error {
 	if err := b.checkOpen(); err != nil {
 		return err
 	}
-	return p.WriteStrongBinderLocal(b.nodeID, b.nodeID)
+	return p.WriteStrongBinderLocalWithStability(b.nodeID, b.nodeID, level)
+}
+
+func (b *localBinder) StabilityLevel() api.StabilityLevel {
+	if b == nil {
+		return api.StabilityUndeclared
+	}
+	return b.stability
 }
 
 func (b *localBinder) checkOpen() error {

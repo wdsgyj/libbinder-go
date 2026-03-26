@@ -12,6 +12,53 @@ import (
 	"github.com/wdsgyj/libbinder-go/internal/aidl/parser"
 )
 
+func TestRenderGoGoldenCorpus(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("golden corpus uses host-side testdata files")
+	}
+
+	cases, err := filepath.Glob(filepath.Join("testdata", "golden", "*", "*.aidl"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("no golden AIDL inputs found")
+	}
+
+	for _, path := range cases {
+		t.Run(strings.TrimSuffix(filepath.Base(path), ".aidl"), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile(%s): %v", path, err)
+			}
+			file, err := parser.Parse(path, string(data))
+			if err != nil {
+				t.Fatalf("Parse(%s): %v", path, err)
+			}
+			model, diags := gomodel.Lower(file, gomodel.LowerOptions{SourcePath: filepath.Base(path)})
+			if len(diags) != 0 {
+				t.Fatalf("Lower diagnostics = %#v", diags)
+			}
+			outputs, err := RenderGo(model, GoOptions{})
+			if err != nil {
+				t.Fatalf("RenderGo: %v", err)
+			}
+			if len(outputs) != 1 {
+				t.Fatalf("len(outputs) = %d, want 1", len(outputs))
+			}
+
+			wantPath := filepath.Join(filepath.Dir(path), "expected.go")
+			want, err := os.ReadFile(wantPath)
+			if err != nil {
+				t.Fatalf("ReadFile(%s): %v", wantPath, err)
+			}
+			if string(outputs[0].Content) != string(want) {
+				t.Fatalf("golden mismatch for %s\n--- got ---\n%s\n--- want ---\n%s", path, outputs[0].Content, want)
+			}
+		})
+	}
+}
+
 func TestRenderGoCompilesAndRuns(t *testing.T) {
 	if runtime.GOOS == "android" {
 		t.Skip("requires host go toolchain")
@@ -1160,6 +1207,41 @@ func TestGeneratedStableInterfaceUnknownTransactionFallback(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go test ./... failed: %v\n%s", err, out)
+	}
+}
+
+func TestRenderGoGeneratesParcelableDefaultConstructor(t *testing.T) {
+	src := `
+package demo;
+
+parcelable Holder {
+  enum Kind {
+    ONE,
+    TWO,
+  }
+  Kind kind = Kind.TWO;
+}
+`
+
+	file, err := parser.Parse("holder.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	model, diags := gomodel.Lower(file, gomodel.LowerOptions{SourcePath: "holder.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v", diags)
+	}
+
+	outputs, err := RenderGo(model, GoOptions{})
+	if err != nil {
+		t.Fatalf("RenderGo: %v", err)
+	}
+	content := string(outputs[0].Content)
+	if !strings.Contains(content, "func NewHolder() Holder") {
+		t.Fatalf("generated code missing default constructor:\n%s", content)
+	}
+	if !strings.Contains(content, "v.Kind = HolderKindTwo") {
+		t.Fatalf("generated code missing default value assignment:\n%s", content)
 	}
 }
 

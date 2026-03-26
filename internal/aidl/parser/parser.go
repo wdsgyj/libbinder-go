@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/scanner"
 
@@ -36,7 +37,7 @@ func Parse(filename string, src string) (*ast.File, error) {
 	p := &Parser{}
 	p.s.Init(strings.NewReader(src))
 	p.s.Filename = filename
-	p.s.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanStrings | scanner.SkipComments
+	p.s.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanFloats | scanner.ScanStrings | scanner.ScanComments | scanner.SkipComments
 	p.next()
 	return p.parseFile()
 }
@@ -184,7 +185,7 @@ func (p *Parser) parseMethodDecl(annotations []ast.Annotation) (*ast.MethodDecl,
 	var args []ast.Field
 	if !p.match(")") {
 		for {
-			arg, err := p.parseField(true)
+			arg, err := p.parseField(true, false)
 			if err != nil {
 				return nil, err
 			}
@@ -226,7 +227,7 @@ func (p *Parser) parseConstDecl(annotations []ast.Annotation) (*ast.ConstDecl, e
 	if err := p.expect("="); err != nil {
 		return nil, err
 	}
-	value, err := p.parseLiteral()
+	value, err := p.parseExpression(";")
 	if err != nil {
 		return nil, err
 	}
@@ -260,13 +261,44 @@ func (p *Parser) parseParcelableDecl(annotations []ast.Annotation) (*ast.Parcela
 	}
 	decl.Structured = true
 	for !p.match("}") {
-		field, err := p.parseField(false)
+		annotations, err := p.parseAnnotations()
 		if err != nil {
 			return nil, err
 		}
-		decl.Fields = append(decl.Fields, field)
-		if err := p.expect(";"); err != nil {
-			return nil, err
+		switch {
+		case p.matchIdent("const"):
+			member, err := p.parseConstDecl(annotations)
+			if err != nil {
+				return nil, err
+			}
+			decl.Consts = append(decl.Consts, *member)
+		case p.matchIdent("parcelable"):
+			nested, err := p.parseParcelableDecl(annotations)
+			if err != nil {
+				return nil, err
+			}
+			decl.Decls = append(decl.Decls, nested)
+		case p.matchIdent("enum"):
+			nested, err := p.parseEnumDecl(annotations)
+			if err != nil {
+				return nil, err
+			}
+			decl.Decls = append(decl.Decls, nested)
+		case p.matchIdent("union"):
+			nested, err := p.parseUnionDecl(annotations)
+			if err != nil {
+				return nil, err
+			}
+			decl.Decls = append(decl.Decls, nested)
+		default:
+			field, err := p.parseFieldWithAnnotations(annotations, false, true)
+			if err != nil {
+				return nil, err
+			}
+			decl.Fields = append(decl.Fields, field)
+			if err := p.expect(";"); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := p.expect("}"); err != nil {
@@ -296,7 +328,7 @@ func (p *Parser) parseEnumDecl(annotations []ast.Annotation) (*ast.EnumDecl, err
 		member := ast.EnumMember{Name: memberName}
 		if p.match("=") {
 			p.next()
-			member.Value, err = p.parseLiteral()
+			member.Value, err = p.parseExpression(",", "}")
 			if err != nil {
 				return nil, err
 			}
@@ -329,7 +361,7 @@ func (p *Parser) parseUnionDecl(annotations []ast.Annotation) (*ast.UnionDecl, e
 		Name:        name,
 	}
 	for !p.match("}") {
-		field, err := p.parseField(false)
+		field, err := p.parseField(false, false)
 		if err != nil {
 			return nil, err
 		}
@@ -344,11 +376,16 @@ func (p *Parser) parseUnionDecl(annotations []ast.Annotation) (*ast.UnionDecl, e
 	return decl, nil
 }
 
-func (p *Parser) parseField(allowDirection bool) (ast.Field, error) {
+func (p *Parser) parseField(allowDirection bool, allowDefault bool) (ast.Field, error) {
 	annotations, err := p.parseAnnotations()
 	if err != nil {
 		return ast.Field{}, err
 	}
+	return p.parseFieldWithAnnotations(annotations, allowDirection, allowDefault)
+}
+
+func (p *Parser) parseFieldWithAnnotations(annotations []ast.Annotation, allowDirection bool, allowDefault bool) (ast.Field, error) {
+	var err error
 
 	var dir ast.Direction
 	if allowDirection {
@@ -373,12 +410,20 @@ func (p *Parser) parseField(allowDirection bool) (ast.Field, error) {
 	if err != nil {
 		return ast.Field{}, err
 	}
-	return ast.Field{
+	field := ast.Field{
 		Annotations: annotations,
 		Direction:   dir,
 		Type:        typ,
 		Name:        name,
-	}, nil
+	}
+	if allowDefault && p.match("=") {
+		p.next()
+		field.DefaultValue, err = p.parseExpression(";")
+		if err != nil {
+			return ast.Field{}, err
+		}
+	}
+	return field, nil
 }
 
 func (p *Parser) parseTypeRef() (ast.TypeRef, error) {
@@ -391,7 +436,10 @@ func (p *Parser) parseTypeRef() (ast.TypeRef, error) {
 	if err != nil {
 		return ast.TypeRef{}, err
 	}
-	typ := ast.TypeRef{Name: name}
+	typ := ast.TypeRef{
+		Annotations: annotations,
+		Name:        name,
+	}
 
 	for _, ann := range annotations {
 		if ann.Name == "nullable" {
@@ -459,7 +507,7 @@ func (p *Parser) parseAnnotations() ([]ast.Annotation, error) {
 							p.next()
 						}
 					}
-					value, err := p.parseLiteral()
+					value, err := p.parseExpression(",", ")")
 					if err != nil {
 						return nil, err
 					}
@@ -508,35 +556,74 @@ func (p *Parser) parseName() (string, error) {
 	return name, nil
 }
 
-func (p *Parser) parseLiteral() (string, error) {
-	switch p.tok.kind {
-	case scanner.Int, scanner.String, scanner.Ident:
-		value := p.tok.text
-		p.next()
-		return value, nil
-	case '-':
-		p.next()
-		if p.tok.kind != scanner.Int {
-			return "", p.unexpected("integer literal")
-		}
-		value := "-" + p.tok.text
-		p.next()
-		return value, nil
-	default:
-		return "", p.unexpected("literal")
-	}
-}
-
 func (p *Parser) parseIntLiteral() (int, error) {
-	value, err := p.parseLiteral()
+	value, err := p.parseExpression("]")
 	if err != nil {
 		return 0, err
 	}
-	var n int
-	if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
+	n, err := strconv.ParseInt(value, 0, 64)
+	if err != nil {
 		return 0, &Error{Pos: p.tok.pos, Msg: fmt.Sprintf("invalid integer literal %q", value)}
 	}
-	return n, nil
+	return int(n), nil
+}
+
+func (p *Parser) parseExpression(stoppers ...string) (string, error) {
+	if len(stoppers) == 0 {
+		return "", fmt.Errorf("parseExpression requires at least one stopper")
+	}
+
+	stopSet := make(map[string]struct{}, len(stoppers))
+	for _, stopper := range stoppers {
+		stopSet[stopper] = struct{}{}
+	}
+
+	var b strings.Builder
+	depthParen := 0
+	depthBracket := 0
+	depthBrace := 0
+	parsed := false
+
+	for p.tok.kind != scanner.EOF {
+		if depthParen == 0 && depthBracket == 0 && depthBrace == 0 {
+			if _, ok := stopSet[p.tok.text]; ok {
+				break
+			}
+		}
+
+		parsed = true
+		switch p.tok.text {
+		case "(":
+			depthParen++
+		case ")":
+			if depthParen == 0 {
+				return "", p.unexpected("expression")
+			}
+			depthParen--
+		case "[":
+			depthBracket++
+		case "]":
+			if depthBracket == 0 {
+				return "", p.unexpected("expression")
+			}
+			depthBracket--
+		case "{":
+			depthBrace++
+		case "}":
+			if depthBrace == 0 {
+				return "", p.unexpected("expression")
+			}
+			depthBrace--
+		}
+
+		b.WriteString(p.tok.text)
+		p.next()
+	}
+
+	if !parsed {
+		return "", p.unexpected("expression")
+	}
+	return strings.TrimSpace(b.String()), nil
 }
 
 func (p *Parser) match(text string) bool {

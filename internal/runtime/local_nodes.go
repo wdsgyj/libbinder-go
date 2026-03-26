@@ -3,7 +3,8 @@ package runtime
 import api "github.com/wdsgyj/libbinder-go/binder"
 
 type LocalNodeRef struct {
-	ID uintptr
+	ID        uintptr
+	Stability api.StabilityLevel
 }
 
 func (r *Runtime) RegisterLocalNode(handler api.Handler, serial bool) (LocalNodeRef, error) {
@@ -11,5 +12,8 @@ func (r *Runtime) RegisterLocalNode(handler api.Handler, serial bool) (LocalNode
 	if err != nil {
 		return LocalNodeRef{}, err
 	}
-	return LocalNodeRef{ID: node.ID}, nil
+	return LocalNodeRef{
+		ID:        node.ID,
+		Stability: node.Stability,
+	}, nil
 }

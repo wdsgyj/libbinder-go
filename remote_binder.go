@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	stdruntime "runtime"
+	"sync"
 	"sync/atomic"
 
 	api "github.com/wdsgyj/libbinder-go/binder"
@@ -12,16 +13,26 @@ import (
 )
 
 type remoteBinder struct {
-	conn   *Conn
-	handle uint32
+	conn      *Conn
+	handle    uint32
+	stability api.StabilityLevel
 
 	closed atomic.Bool
+
+	descriptorMu     sync.RWMutex
+	descriptor       string
+	descriptorCached bool
 }
 
 func newRemoteBinder(conn *Conn, handle uint32) *remoteBinder {
+	return newRemoteBinderWithStability(conn, handle, api.DefaultLocalStability())
+}
+
+func newRemoteBinderWithStability(conn *Conn, handle uint32, stability api.StabilityLevel) *remoteBinder {
 	b := &remoteBinder{
-		conn:   conn,
-		handle: handle,
+		conn:      conn,
+		handle:    handle,
+		stability: stability,
 	}
 	if conn != nil && handle != 0 {
 		conn.retainBinder(handle)
@@ -42,6 +53,15 @@ func (b *remoteBinder) Descriptor(ctx context.Context) (string, error) {
 	if err := b.checkOpen(); err != nil {
 		return "", err
 	}
+
+	b.descriptorMu.RLock()
+	if b.descriptorCached {
+		desc := b.descriptor
+		b.descriptorMu.RUnlock()
+		return desc, nil
+	}
+	b.descriptorMu.RUnlock()
+
 	reply, err := b.Transact(ctx, kernel.InterfaceTransaction, api.NewParcel(), api.FlagNone)
 	if err != nil {
 		return "", err
@@ -49,7 +69,19 @@ func (b *remoteBinder) Descriptor(ctx context.Context) (string, error) {
 	if reply == nil {
 		return "", fmt.Errorf("%w: interface descriptor reply was nil", api.ErrBadParcelable)
 	}
-	return reply.ReadString()
+	desc, err := reply.ReadString()
+	if err != nil {
+		return "", err
+	}
+
+	b.descriptorMu.Lock()
+	if !b.descriptorCached {
+		b.descriptor = desc
+		b.descriptorCached = true
+	}
+	desc = b.descriptor
+	b.descriptorMu.Unlock()
+	return desc, nil
 }
 
 func (b *remoteBinder) Transact(ctx context.Context, code uint32, data *api.Parcel, flags api.Flags) (*api.Parcel, error) {
@@ -81,10 +113,21 @@ func (b *remoteBinder) RegisterLocalHandler(handler api.Handler) (api.Binder, er
 }
 
 func (b *remoteBinder) WriteBinderToParcel(p *api.Parcel) error {
+	return b.WriteBinderToParcelWithStability(p, b.stability)
+}
+
+func (b *remoteBinder) WriteBinderToParcelWithStability(p *api.Parcel, level api.StabilityLevel) error {
 	if err := b.checkOpen(); err != nil {
 		return err
 	}
-	return p.WriteStrongBinderHandle(b.handle)
+	return p.WriteStrongBinderHandleWithStability(b.handle, level)
+}
+
+func (b *remoteBinder) StabilityLevel() api.StabilityLevel {
+	if b == nil {
+		return api.StabilityUndeclared
+	}
+	return b.stability
 }
 
 func (b *remoteBinder) Close() error {

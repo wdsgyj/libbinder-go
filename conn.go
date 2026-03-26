@@ -46,6 +46,7 @@ func Open(cfg Config) (*Conn, error) {
 		rt: rt,
 	}
 	conn.rt.Kernel.SetParcelResolvers(conn.resolveBinderHandle, conn.resolveLocalBinder)
+	conn.rt.Kernel.SetParcelObjectResolvers(conn.resolveBinderObject, conn.resolveLocalBinderObject)
 	conn.sm = &serviceManager{
 		conn:   conn,
 		target: newRemoteBinder(conn, contextManagerHandle),
@@ -202,11 +203,35 @@ func (c *Conn) resolveBinderHandle(handle uint32) api.Binder {
 	return newRemoteBinder(c, handle)
 }
 
+func (c *Conn) resolveBinderObject(obj api.ParcelObject) api.Binder {
+	if c == nil {
+		return nil
+	}
+	c.markHandleAcquired(obj.Handle)
+	return newRemoteBinderWithStability(c, obj.Handle, obj.Stability)
+}
+
 func (c *Conn) resolveLocalBinder(nodeID uintptr) api.Binder {
 	if c == nil || nodeID == 0 {
 		return nil
 	}
 	return newLocalBinder(c, nodeID)
+}
+
+func (c *Conn) resolveLocalBinderObject(obj api.ParcelObject, nodeID uintptr) api.Binder {
+	if c == nil || nodeID == 0 {
+		return nil
+	}
+	level := obj.Stability
+	if level == api.StabilityUndeclared && c.rt != nil && c.rt.Kernel != nil {
+		if node, ok := c.rt.Kernel.LocalNode(nodeID); ok {
+			level = node.Stability
+		}
+	}
+	if level == api.StabilityUndeclared {
+		level = api.DefaultLocalStability()
+	}
+	return newLocalBinderWithStability(c, nodeID, level)
 }
 
 func (c *Conn) watchDeath(ctx context.Context, handle uint32) (api.Subscription, error) {

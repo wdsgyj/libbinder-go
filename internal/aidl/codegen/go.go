@@ -132,6 +132,11 @@ func (r *goRenderer) validate() error {
 			}
 			continue
 		}
+		for _, c := range p.Consts {
+			if err := r.validateConstType(c.Type); err != nil {
+				return fmt.Errorf("parcelable %s const %s: %w", p.GoName, c.GoName, err)
+			}
+		}
 		for _, field := range p.Fields {
 			if err := r.validateTypeUsage(field.Type, false); err != nil {
 				return fmt.Errorf("parcelable %s field %s: %w", p.GoName, field.GoName, err)
@@ -274,20 +279,12 @@ func (r *goRenderer) renderEnum(enum *gomodel.Enum) {
 	r.linef("type %s %s", enum.GoName, enum.Underlying.GoExpr)
 	r.linef("")
 	r.linef("const (")
-	nextValue := int64(0)
-	for i, member := range enum.Members {
+	for _, member := range enum.Members {
 		valueExpr := member.Value
 		if valueExpr == "" {
-			valueExpr = fmt.Sprintf("%d", nextValue)
+			valueExpr = "0"
 		}
 		r.linef("\t%s %s = %s", member.GoName, enum.GoName, valueExpr)
-		if i == 0 && member.Value == "" {
-			nextValue = 1
-		} else if v, err := parseInt(member.Value); err == nil {
-			nextValue = v + 1
-		} else {
-			nextValue++
-		}
 	}
 	r.linef(")")
 	r.linef("")
@@ -361,12 +358,35 @@ func (r *goRenderer) renderParcelable(p *gomodel.Parcelable) {
 
 	needsRegistrar := r.fieldsNeedRegistrar(p.Fields)
 
+	if len(p.Consts) != 0 {
+		r.linef("const (")
+		for _, c := range p.Consts {
+			r.linef("\t%s %s = %s", c.GoName, c.Type.GoExpr, c.Value)
+		}
+		r.linef(")")
+		r.linef("")
+	}
+
 	r.linef("type %s struct {", p.GoName)
 	for _, field := range p.Fields {
 		r.linef("\t%s %s", field.GoName, field.Type.GoExpr)
 	}
 	r.linef("}")
 	r.linef("")
+
+	if hasDefaultFields(p.Fields) {
+		r.linef("func New%s() %s {", p.GoName, p.GoName)
+		r.linef("\tv := %s{}", p.GoName)
+		for _, field := range p.Fields {
+			if field.DefaultValue == "" {
+				continue
+			}
+			r.linef("\tv.%s = %s", field.GoName, field.DefaultValue)
+		}
+		r.linef("\treturn v")
+		r.linef("}")
+		r.linef("")
+	}
 
 	if needsRegistrar {
 		r.linef("func write%sToParcel(p *binder.Parcel, v %s) error {", p.GoName, p.GoName)
@@ -395,7 +415,11 @@ func (r *goRenderer) renderParcelable(p *gomodel.Parcelable) {
 	}
 
 	r.linef("func read%sFromParcel(p *binder.Parcel) (%s, error) {", p.GoName, p.GoName)
-	r.linef("\tvar v %s", p.GoName)
+	if hasDefaultFields(p.Fields) {
+		r.linef("\tv := New%s()", p.GoName)
+	} else {
+		r.linef("\tvar v %s", p.GoName)
+	}
 	for _, field := range p.Fields {
 		r.linef("\t%sValue, err := %s", lowerFirst(field.GoName), r.readExpr("p", field.Type))
 		r.linef("\tif err != nil {")
@@ -1207,6 +1231,15 @@ func parseInt(value string) (int64, error) {
 		n = n*10 + int64(r-'0')
 	}
 	return sign * n, nil
+}
+
+func hasDefaultFields(fields []gomodel.Field) bool {
+	for _, field := range fields {
+		if field.DefaultValue != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func lowerFirst(name string) string {

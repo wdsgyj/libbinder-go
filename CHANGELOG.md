@@ -4,6 +4,149 @@
 
 ## Unreleased
 
+## 0.0.6 - 2026-03-26
+
+本版本完成了重写路线图最后剩余的“阶段 11：第二阶段增强能力”，至此：
+
+- Go runtime 路线图阶段 1 到阶段 11 已全部完成
+- AIDL 全功能计划阶段 0 到阶段 9 继续保持全部完成
+- 当前不再存在既定路线图中的未完成阶段，后续工作只属于增量演进
+
+### Added
+
+- 增加 Binder stability 标签能力：
+  - `binder.StabilityLevel`
+  - `binder.StabilityProvider`
+  - `binder.WithStability`
+  - `Parcel` Binder object 的 stability 元数据保留与解析
+- 增加 lazy service 能力：
+  - `binder.NewLazyHandler`
+  - `binder.NewLazyHandlerWithMetadata`
+  - `AddLazyService`
+  - `AddLazyServiceWithMetadata`
+- 增加 record/replay 能力：
+  - `binder.NewTransactionRecorder`
+  - `binder.NewRecordingBinder`
+  - `binder.NewReplayBinder`
+- 增加 Binder RPC backend：
+  - `DialRPC`
+  - `ServeRPC`
+  - `RPCConn`
+  - 会话内 Binder object / callback 透传
+  - `RPCConn.DebugSnapshot`
+- 增加调试快照能力：
+  - `Conn.DebugSnapshot`
+  - kernel/runtime/ref/service cache 快照
+
+### Changed
+
+- `ServiceManager` 现在补齐 client cache / addService cache：
+  - `CheckService`
+  - `WaitService`
+  - `AddService`
+  都会复用进程内已知服务对象
+- remote binder descriptor 现在带缓存：
+  - kernel remote binder
+  - RPC remote binder
+- local dispatch 的保留事务处理被抽成共享逻辑：
+  - `binder.DispatchLocalHandler`
+  - kernel backend 与 RPC backend 共用
+- kernel `BC_ENTER_LOOPER` 兼容性更稳：
+  - 接受部分 emulator kernel 返回 `write_consumed=0` 的行为
+
+### Testing
+
+- 新增 binder 单测覆盖：
+  - stability 标签与 metadata 保留
+  - lazy handler
+  - record/replay
+- 新增 root 包单测覆盖：
+  - `ServiceManager` cache
+  - `Conn.DebugSnapshot`
+  - RPC service manager / callback / FD 限制 / debug snapshot
+- Android aarch64 模拟器回归新增覆盖：
+  - lazy service helper
+  - RPC backend 基础链路
+  - stability / replay / debug snapshot 对应测试包
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
+## 0.0.5 - 2026-03-26
+
+本版本完成了“阶段 10 以及之前仍未完成项”的收尾，至此：
+
+- Go runtime 路线图阶段 1 到阶段 10 已全部完成
+- AIDL 全功能计划阶段 0 到阶段 9 已全部完成
+- 当前只剩阶段 11 的增强能力，不再存在主链缺口
+
+### Added
+
+- 增加 AIDL 表达式与语义能力补齐：
+  - `internal/aidl/expr`
+  - 更完整的常量表达式解析与求值
+  - `parcelable` 内嵌 `enum` / `union` / `parcelable` 解析与 lowering
+  - `parcelable` 内部 `const`
+  - structured `parcelable` 字段默认值
+- 增加生成代码质量回归：
+  - `internal/aidl/codegen/testdata/golden/...`
+  - `codegen` golden corpus 测试
+  - `cmd/aidlgen` 的 AOSP binder corpus 回归
+- 增加 checked-in generated fixture：
+  - `internal/aidl/generatedfixture`
+  - 用于 Android aarch64 模拟器直接执行已生成代码
+
+### Changed
+
+- parser 现在支持：
+  - 文件头 block comment
+  - 更完整的 expression capture
+  - `parcelable` 内 nested decl / const / field default
+- resolve 现在补齐 annotation 语义校验：
+  - `@nullable`
+  - `@nullable(heap=true)`
+  - `@Backing(type=...)`
+  - `@FixedSize`
+  - `@VintfStability`
+- gomodel 现在会：
+  - 重写常量表达式为 Go 可直接使用的表达式
+  - 计算 enum 隐式值
+  - 下沉 parcelable const 与字段默认值
+- codegen 现在会：
+  - 生成 parcelable const
+  - 为带默认值的 parcelable 生成 `New<Type>()`
+  - 在反序列化入口应用默认值初始化
+
+### Testing
+
+- 新增 parser 单测覆盖：
+  - expression capture
+  - `parcelable` 内 nested enum / const / default
+- 新增 resolve 单测覆盖：
+  - annotation 语义校验
+  - const expression / fixed-size 校验
+- 新增 gomodel 单测覆盖：
+  - const expression rewriting
+  - nested enum default lowering
+- 新增 codegen 单测覆盖：
+  - golden corpus
+  - parcelable default constructor 生成
+- 新增 CLI 单测覆盖：
+  - AOSP binder corpus 的 host 侧批量生成
+- 新增 generated fixture 测试：
+  - host 与 Android emulator 直接执行 checked-in generated code
+
+### Verification
+
+- 宿主机：
+  - `go test ./...`
+- Android aarch64 模拟器：
+  - `ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDROID_WIPE_DATA=0 ./scripts/android-emulator-test.sh ./... -- -test.v`
+
 ## 0.0.4 - 2026-03-25
 
 本版本补齐了 AIDL 代码生成主链里原先阻塞“完整生成器”落地的几块核心缺口：Binder object / interface / FD 通路、custom parcelable sidecar、stable AIDL 元数据与兼容回退、以及跨文件 import graph 的最小闭包加载。

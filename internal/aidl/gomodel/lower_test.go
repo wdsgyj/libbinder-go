@@ -239,6 +239,65 @@ interface IEcho {
 	}
 }
 
+func TestLowerRewritesConstExpressions(t *testing.T) {
+	src := `
+package demo;
+
+interface IFoo {
+  const int A = 1 << 0;
+  const int B = A | (1 << 1);
+}
+`
+
+	file, err := parser.Parse("consts.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "consts.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	if got := model.Interfaces[0].Consts[1].Value; got != "(IFooA|((1<<1)))" {
+		t.Fatalf("const B value = %q, want (IFooA|((1<<1)))", got)
+	}
+}
+
+func TestLowerParcelableNestedEnumDefaultValue(t *testing.T) {
+	src := `
+package demo;
+
+parcelable Holder {
+  enum Kind {
+    ONE,
+    TWO,
+  }
+  const int Mask = 1 << 3;
+  Kind kind = Kind.TWO;
+}
+`
+
+	file, err := parser.Parse("holder.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "holder.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+	if len(model.Enums) != 1 {
+		t.Fatalf("len(model.Enums) = %d, want 1", len(model.Enums))
+	}
+	if len(model.Parcelables[0].Consts) != 1 || model.Parcelables[0].Consts[0].Value != "(1<<3)" {
+		t.Fatalf("parcelable consts = %#v, want Mask=(1<<3)", model.Parcelables[0].Consts)
+	}
+	if got := model.Parcelables[0].Fields[0].DefaultValue; got != "HolderKindTwo" {
+		t.Fatalf("default value = %q, want HolderKindTwo", got)
+	}
+}
+
 func TestLowerResolvesImportedDependencyFiles(t *testing.T) {
 	callbackSrc := `
 package demo;

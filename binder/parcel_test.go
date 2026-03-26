@@ -389,8 +389,8 @@ func TestParcelWriteStrongBinderLocalWireData(t *testing.T) {
 	if got := binary.LittleEndian.Uint64(payload[16:24]); got != 0x22 {
 		t.Fatalf("cookie = %#x, want %#x", got, uint64(0x22))
 	}
-	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != systemStabilityLevel {
-		t.Fatalf("stability = %d, want %d", got, systemStabilityLevel)
+	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != int32(systemStabilityLevel) {
+		t.Fatalf("stability = %d, want %d", got, int32(systemStabilityLevel))
 	}
 }
 
@@ -414,8 +414,32 @@ func TestParcelWriteStrongBinderHandleWireData(t *testing.T) {
 	if got := binary.LittleEndian.Uint32(payload[8:12]); got != 42 {
 		t.Fatalf("handle = %#x, want %#x", got, uint32(42))
 	}
-	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != systemStabilityLevel {
-		t.Fatalf("stability = %d, want %d", got, systemStabilityLevel)
+	if got := int32(binary.LittleEndian.Uint32(payload[24:28])); got != int32(systemStabilityLevel) {
+		t.Fatalf("stability = %d, want %d", got, int32(systemStabilityLevel))
+	}
+}
+
+func TestParcelStrongBinderObjectPreservesStability(t *testing.T) {
+	p := NewParcel()
+	if err := p.WriteStrongBinderHandleWithStability(42, StabilityVendor); err != nil {
+		t.Fatalf("WriteStrongBinderHandleWithStability: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	obj, err := p.ReadObject()
+	if err != nil {
+		t.Fatalf("ReadObject: %v", err)
+	}
+	if obj.Kind != ObjectStrongBinder {
+		t.Fatalf("Kind = %d, want ObjectStrongBinder", obj.Kind)
+	}
+	if obj.Stability != StabilityVendor {
+		t.Fatalf("Stability = %v, want %v", obj.Stability, StabilityVendor)
+	}
+	if obj.Length != flatBinderObjectWireSize {
+		t.Fatalf("Length = %d, want %d", obj.Length, flatBinderObjectWireSize)
 	}
 }
 
@@ -516,6 +540,34 @@ func TestParcelReadStrongBinderUsesResolvers(t *testing.T) {
 			t.Fatalf("ReadStrongBinder = %#v, want %#v", got, want)
 		}
 	})
+}
+
+func TestParcelReadStrongBinderUsesObjectResolvers(t *testing.T) {
+	p := NewParcel()
+	want := testBinder{id: "remote"}
+	p.SetBinderObjectResolvers(func(obj ParcelObject) Binder {
+		if obj.Handle != 11 {
+			t.Fatalf("resolver handle = %d, want 11", obj.Handle)
+		}
+		if obj.Stability != StabilityVINTF {
+			t.Fatalf("resolver stability = %v, want %v", obj.Stability, StabilityVINTF)
+		}
+		return want
+	}, nil)
+	if err := p.WriteStrongBinderHandleWithStability(11, StabilityVINTF); err != nil {
+		t.Fatalf("WriteStrongBinderHandleWithStability: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := p.ReadStrongBinder()
+	if err != nil {
+		t.Fatalf("ReadStrongBinder: %v", err)
+	}
+	if got != want {
+		t.Fatalf("ReadStrongBinder = %#v, want %#v", got, want)
+	}
 }
 
 func TestParcelReadFileDescriptorOwnership(t *testing.T) {
@@ -698,6 +750,24 @@ func TestParcelWriteStrongBinderUsesMarshaler(t *testing.T) {
 	}
 }
 
+func TestParcelWriteStrongBinderUsesStabilityMarshaler(t *testing.T) {
+	p := NewParcel()
+	b := testStableMarshaledBinder{
+		testBinder: testBinder{id: "stable"},
+		handle:     17,
+		level:      StabilityVendor,
+	}
+
+	if err := p.WriteStrongBinder(b); err != nil {
+		t.Fatalf("WriteStrongBinder: %v", err)
+	}
+
+	payload, _ := p.KernelWireData()
+	if got := StabilityLevel(int32(binary.LittleEndian.Uint32(payload[24:28]))); got != StabilityVendor {
+		t.Fatalf("stability = %v, want %v", got, StabilityVendor)
+	}
+}
+
 type testBinder struct {
 	id string
 }
@@ -716,6 +786,20 @@ type testMarshaledBinder struct {
 
 func (b testMarshaledBinder) WriteBinderToParcel(p *Parcel) error {
 	return p.WriteStrongBinderHandle(b.handle)
+}
+
+type testStableMarshaledBinder struct {
+	testBinder
+	handle uint32
+	level  StabilityLevel
+}
+
+func (b testStableMarshaledBinder) StabilityLevel() StabilityLevel {
+	return b.level
+}
+
+func (b testStableMarshaledBinder) WriteBinderToParcelWithStability(p *Parcel, level StabilityLevel) error {
+	return p.WriteStrongBinderHandleWithStability(b.handle, level)
 }
 
 func dupPipeFD(t *testing.T) int {

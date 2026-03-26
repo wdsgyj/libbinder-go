@@ -144,3 +144,67 @@ parcelable Foo {
 		t.Fatalf("names type = %#v, want List<String>", decl.Fields[2].Type)
 	}
 }
+
+func TestParseConstExpressionsAndParcelableDefaults(t *testing.T) {
+	src := `
+package demo;
+
+interface IFoo {
+  const int A = 1 << 0;
+  const int B = A | (1 << 1);
+}
+
+parcelable Holder {
+  enum Kind {
+    ONE,
+    TWO,
+  }
+  const int Mask = 1 << 3;
+  Kind kind = Kind.TWO;
+}
+`
+
+	file, err := Parse("exprs.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(file.Decls) != 2 {
+		t.Fatalf("len(Decls) = %d, want 2", len(file.Decls))
+	}
+
+	iface, ok := file.Decls[0].(*ast.InterfaceDecl)
+	if !ok {
+		t.Fatalf("decl[0] type = %T, want *ast.InterfaceDecl", file.Decls[0])
+	}
+	constA, ok := iface.Members[0].(*ast.ConstDecl)
+	if !ok {
+		t.Fatalf("member[0] type = %T, want *ast.ConstDecl", iface.Members[0])
+	}
+	if constA.Value != "1<<0" {
+		t.Fatalf("const A value = %q, want 1<<0", constA.Value)
+	}
+	constB := iface.Members[1].(*ast.ConstDecl)
+	if constB.Value != "A|(1<<1)" {
+		t.Fatalf("const B value = %q, want A|(1<<1)", constB.Value)
+	}
+
+	holder, ok := file.Decls[1].(*ast.ParcelableDecl)
+	if !ok {
+		t.Fatalf("decl[1] type = %T, want *ast.ParcelableDecl", file.Decls[1])
+	}
+	if len(holder.Decls) != 1 {
+		t.Fatalf("len(holder.Decls) = %d, want 1", len(holder.Decls))
+	}
+	if _, ok := holder.Decls[0].(*ast.EnumDecl); !ok {
+		t.Fatalf("holder.Decls[0] type = %T, want *ast.EnumDecl", holder.Decls[0])
+	}
+	if len(holder.Consts) != 1 || holder.Consts[0].Value != "1<<3" {
+		t.Fatalf("holder.Consts = %#v, want Mask=1<<3", holder.Consts)
+	}
+	if len(holder.Fields) != 1 {
+		t.Fatalf("len(holder.Fields) = %d, want 1", len(holder.Fields))
+	}
+	if got := holder.Fields[0].DefaultValue; got != "Kind.TWO" {
+		t.Fatalf("holder.Fields[0].DefaultValue = %q, want Kind.TWO", got)
+	}
+}

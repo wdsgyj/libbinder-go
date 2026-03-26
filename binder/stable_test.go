@@ -67,9 +67,68 @@ func TestTransactionContextHelpers(t *testing.T) {
 	}
 }
 
+func TestStabilityHelpers(t *testing.T) {
+	if !CheckStability(StabilityVINTF, StabilitySystem) {
+		t.Fatal("CheckStability(vintf, system) = false, want true")
+	}
+	if CheckStability(StabilityVendor, StabilitySystem) {
+		t.Fatal("CheckStability(vendor, system) = true, want false")
+	}
+	if got := StabilityVendor.String(); got != "vendor" {
+		t.Fatalf("StabilityVendor.String() = %q, want vendor", got)
+	}
+}
+
+func TestWithStabilityPreservesStableProviders(t *testing.T) {
+	handler := WithStability(stableTestHandler{
+		StaticHandler: StaticHandler{
+			DescriptorName: "stable",
+			Handle: func(ctx context.Context, code uint32, data *Parcel) (*Parcel, error) {
+				return NewParcel(), nil
+			},
+		},
+		version: 5,
+		hash:    "hash-5",
+	}, StabilityVINTF)
+
+	provider, ok := handler.(StabilityProvider)
+	if !ok {
+		t.Fatal("handler missing StabilityProvider")
+	}
+	if provider.StabilityLevel() != StabilityVINTF {
+		t.Fatalf("StabilityLevel = %v, want %v", provider.StabilityLevel(), StabilityVINTF)
+	}
+
+	versionProvider, ok := handler.(InterfaceVersionProvider)
+	if !ok || versionProvider.InterfaceVersion() != 5 {
+		t.Fatalf("InterfaceVersionProvider = (%v, %v), want (true, 5)", ok, int32(5))
+	}
+	hashProvider, ok := handler.(InterfaceHashProvider)
+	if !ok {
+		t.Fatal("handler missing InterfaceHashProvider")
+	}
+	if hashProvider.InterfaceHash() != "hash-5" {
+		t.Fatalf("InterfaceHash = %q, want hash-5", hashProvider.InterfaceHash())
+	}
+}
+
 type stableQueryBinder struct {
 	version int32
 	hash    string
+}
+
+type stableTestHandler struct {
+	StaticHandler
+	version int32
+	hash    string
+}
+
+func (h stableTestHandler) InterfaceVersion() int32 {
+	return h.version
+}
+
+func (h stableTestHandler) InterfaceHash() string {
+	return h.hash
 }
 
 func (b stableQueryBinder) Descriptor(ctx context.Context) (string, error) { return "stable", nil }

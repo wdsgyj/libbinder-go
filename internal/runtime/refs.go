@@ -18,6 +18,24 @@ type HandleRef struct {
 	Wait                chan struct{}
 }
 
+type HandleRefSnapshot struct {
+	Handle              uint32
+	BinderRefs          int
+	WatchRefs           int
+	Acquired            bool
+	Acquiring           bool
+	ReleaseAfterAcquire bool
+}
+
+type RefSnapshot struct {
+	Handles        []HandleRefSnapshot
+	HandleCount    int
+	BinderRefs     int
+	WatchRefs      int
+	AcquiredCount  int
+	AcquiringCount int
+}
+
 func NewRefTracker() *RefTracker {
 	return &RefTracker{
 		handles: make(map[uint32]*HandleRef),
@@ -175,4 +193,38 @@ func (r *RefTracker) ensure(handle uint32) *HandleRef {
 		r.handles[handle] = ref
 	}
 	return ref
+}
+
+func (r *RefTracker) Snapshot() RefSnapshot {
+	if r == nil {
+		return RefSnapshot{}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := RefSnapshot{
+		Handles:     make([]HandleRefSnapshot, 0, len(r.handles)),
+		HandleCount: len(r.handles),
+	}
+	for handle, ref := range r.handles {
+		snap := HandleRefSnapshot{
+			Handle:              handle,
+			BinderRefs:          ref.BinderRefs,
+			WatchRefs:           ref.WatchRefs,
+			Acquired:            ref.Acquired,
+			Acquiring:           ref.Acquiring,
+			ReleaseAfterAcquire: ref.ReleaseAfterAcquire,
+		}
+		out.Handles = append(out.Handles, snap)
+		out.BinderRefs += ref.BinderRefs
+		out.WatchRefs += ref.WatchRefs
+		if ref.Acquired {
+			out.AcquiredCount++
+		}
+		if ref.Acquiring {
+			out.AcquiringCount++
+		}
+	}
+	return out
 }

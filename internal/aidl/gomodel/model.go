@@ -44,7 +44,9 @@ type Parcelable struct {
 	AIDLName   string            `json:"aidl_name"`
 	GoName     string            `json:"go_name"`
 	Structured bool              `json:"structured,omitempty"`
+	FixedSize  bool              `json:"fixed_size,omitempty"`
 	Custom     *CustomParcelable `json:"custom,omitempty"`
+	Consts     []Const           `json:"consts,omitempty"`
 	Fields     []Field           `json:"fields,omitempty"`
 }
 
@@ -92,9 +94,10 @@ type EnumMember struct {
 }
 
 type Union struct {
-	AIDLName string  `json:"aidl_name"`
-	GoName   string  `json:"go_name"`
-	Fields   []Field `json:"fields,omitempty"`
+	AIDLName  string  `json:"aidl_name"`
+	GoName    string  `json:"go_name"`
+	FixedSize bool    `json:"fixed_size,omitempty"`
+	Fields    []Field `json:"fields,omitempty"`
 }
 
 type Const struct {
@@ -105,10 +108,11 @@ type Const struct {
 }
 
 type Field struct {
-	Name      string        `json:"name"`
-	GoName    string        `json:"go_name"`
-	Direction ast.Direction `json:"direction,omitempty"`
-	Type      *Type         `json:"type"`
+	Name         string        `json:"name"`
+	GoName       string        `json:"go_name"`
+	Direction    ast.Direction `json:"direction,omitempty"`
+	Type         *Type         `json:"type"`
+	DefaultValue string        `json:"default_value,omitempty"`
 }
 
 type TypeKind string

@@ -37,18 +37,20 @@ const (
 )
 
 type TypeRef struct {
-	Name          string    `json:"name"`
-	TypeArgs      []TypeRef `json:"type_args,omitempty"`
-	Array         bool      `json:"array,omitempty"`
-	FixedArrayLen *int      `json:"fixed_array_len,omitempty"`
-	Nullable      bool      `json:"nullable,omitempty"`
+	Annotations   []Annotation `json:"annotations,omitempty"`
+	Name          string       `json:"name"`
+	TypeArgs      []TypeRef    `json:"type_args,omitempty"`
+	Array         bool         `json:"array,omitempty"`
+	FixedArrayLen *int         `json:"fixed_array_len,omitempty"`
+	Nullable      bool         `json:"nullable,omitempty"`
 }
 
 type Field struct {
-	Annotations []Annotation `json:"annotations,omitempty"`
-	Direction   Direction    `json:"direction,omitempty"`
-	Type        TypeRef      `json:"type"`
-	Name        string       `json:"name"`
+	Annotations  []Annotation `json:"annotations,omitempty"`
+	Direction    Direction    `json:"direction,omitempty"`
+	Type         TypeRef      `json:"type"`
+	Name         string       `json:"name"`
+	DefaultValue string       `json:"default_value,omitempty"`
 }
 
 type InterfaceDecl struct {
@@ -83,7 +85,9 @@ type ParcelableDecl struct {
 	Annotations []Annotation `json:"annotations,omitempty"`
 	Name        string       `json:"name"`
 	Structured  bool         `json:"structured,omitempty"`
+	Consts      []ConstDecl  `json:"consts,omitempty"`
 	Fields      []Field      `json:"fields,omitempty"`
+	Decls       []Decl       `json:"decls,omitempty"`
 }
 
 func (*ParcelableDecl) declNode()            {}

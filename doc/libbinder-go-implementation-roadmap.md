@@ -13,6 +13,14 @@
 - 使用 Go 重写内核 Binder driver
 - 首版直接对齐全部 AOSP `libbinder` 功能
 
+## 1.1 当前状态
+
+`0.0.6` 的当前结论：
+
+- 阶段 1 到阶段 11 已全部完成
+- 对应代码、单元测试、Android aarch64 模拟器集成测试都已落地
+- 当前不再存在路线图中的未完成阶段
+
 ---
 
 ## 2. 总体实施策略
@@ -431,6 +439,14 @@ caller goroutine
 ### 完成标准
 
 - 高级能力在不破坏 MVP API 的前提下逐步并入
+- `0.0.6` 已完成：
+  - stability 标签
+  - lazy service
+  - client cache / addService cache
+  - record/replay
+  - Binder RPC backend
+  - 调试快照
+  - RPC frame pool 与 descriptor/service cache 优化
 
 ---
 

@@ -20,6 +20,12 @@
 
 `做一个可生产使用的 AIDL -> Go backend，建立在现有 Go Binder runtime 之上。`
 
+当前状态：
+
+- `0.0.6` 已完成阶段 0 到阶段 9 的全部交付
+- parser / resolve / typed model / codegen / CLI / host / Android emulator 回归都已落地
+- Go runtime 路线图阶段 11 也已完成，因此当前剩余工作只属于计划之外的后续增强，而不是本计划中的主链缺口
+
 ---
 
 ## 2. “功能全集” 的定义

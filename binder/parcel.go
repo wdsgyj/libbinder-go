@@ -21,7 +21,11 @@ const (
 
 	flatBinderFlagAcceptsFDs = 0x100
 	localBinderSchedBits     = 19
-	systemStabilityLevel     = 0b001100
+)
+
+const (
+	flatBinderObjectWireSize = flatObjectSize + 4
+	systemStabilityLevel     = StabilitySystem
 )
 
 type parcelFlags uint32
@@ -51,6 +55,7 @@ type parcelObjectRef struct {
 	Offset     int
 	Length     int
 	Handle     uint32
+	Stability  StabilityLevel
 }
 
 // ObjectKind identifies a Binder wire object embedded in a Parcel.
@@ -68,10 +73,11 @@ const (
 // This is primarily useful for low-level runtime code that needs access to the
 // Binder object table.
 type ParcelObject struct {
-	Kind   ObjectKind
-	Offset int
-	Length int
-	Handle uint32
+	Kind      ObjectKind
+	Offset    int
+	Length    int
+	Handle    uint32
+	Stability StabilityLevel
 }
 
 // Parcel is the public payload container used for Binder transactions.
@@ -81,14 +87,16 @@ type ParcelObject struct {
 // format. This MVP implements the core scalar/string/[]byte codec and keeps the
 // object table reserved for later kernel/RPC work.
 type Parcel struct {
-	buf                []byte
-	pos                int
-	objects            []parcelObjectRef
-	mode               parcelMode
-	flags              parcelFlags
-	binderResolver     func(uint32) Binder
-	localBinderResolve func(uintptr) Binder
-	wireFDsOwned       bool
+	buf                      []byte
+	pos                      int
+	objects                  []parcelObjectRef
+	mode                     parcelMode
+	flags                    parcelFlags
+	binderResolver           func(uint32) Binder
+	localBinderResolve       func(uintptr) Binder
+	binderObjectResolve      func(ParcelObject) Binder
+	localBinderObjectResolve func(ParcelObject, uintptr) Binder
+	wireFDsOwned             bool
 }
 
 func NewParcel() *Parcel {
@@ -148,8 +156,9 @@ func (p *Parcel) SetWireData(b []byte, objects []ParcelObject) {
 			Kind:       objectKindToRef(obj.Kind),
 			ObjectKind: obj.Kind,
 			Offset:     obj.Offset,
-			Length:     obj.Length,
+			Length:     wireObjectLength(obj.Kind, obj.Length),
 			Handle:     obj.Handle,
+			Stability:  obj.Stability,
 		})
 	}
 }
@@ -162,6 +171,16 @@ func (p *Parcel) SetBinderResolvers(handleResolver func(uint32) Binder, localRes
 	}
 	p.binderResolver = handleResolver
 	p.localBinderResolve = localResolver
+}
+
+// SetBinderObjectResolvers configures how ReadStrongBinder resolves Binder objects
+// while preserving wire metadata such as stability labels.
+func (p *Parcel) SetBinderObjectResolvers(handleResolver func(ParcelObject) Binder, localResolver func(ParcelObject, uintptr) Binder) {
+	if p == nil {
+		return
+	}
+	p.binderObjectResolve = handleResolver
+	p.localBinderObjectResolve = localResolver
 }
 
 func (p *Parcel) Bytes() []byte {
@@ -199,10 +218,11 @@ func (p *Parcel) Objects() []ParcelObject {
 	objects := make([]ParcelObject, 0, len(p.objects))
 	for _, obj := range p.objects {
 		objects = append(objects, ParcelObject{
-			Kind:   obj.ObjectKind,
-			Offset: obj.Offset,
-			Length: obj.Length,
-			Handle: obj.Handle,
+			Kind:      obj.ObjectKind,
+			Offset:    obj.Offset,
+			Length:    wireObjectLength(obj.ObjectKind, obj.Length),
+			Handle:    obj.Handle,
+			Stability: obj.Stability,
 		})
 	}
 	return objects
@@ -394,6 +414,11 @@ func (p *Parcel) ReadInterfaceToken() (string, error) {
 // This is a low-level helper used by runtime code that is registering or
 // passing process-local Binder nodes.
 func (p *Parcel) WriteStrongBinderLocal(ptr, cookie uintptr) error {
+	return p.WriteStrongBinderLocalWithStability(ptr, cookie, systemStabilityLevel)
+}
+
+// WriteStrongBinderLocalWithStability writes a local Binder object with an explicit stability label.
+func (p *Parcel) WriteStrongBinderLocalWithStability(ptr, cookie uintptr, stability StabilityLevel) error {
 	if p == nil {
 		return ErrBadParcelable
 	}
@@ -407,7 +432,7 @@ func (p *Parcel) WriteStrongBinderLocal(ptr, cookie uintptr) error {
 	}); err != nil {
 		return err
 	}
-	if err := p.WriteInt32(systemStabilityLevel); err != nil {
+	if err := p.WriteInt32(int32(stability)); err != nil {
 		return err
 	}
 
@@ -415,7 +440,8 @@ func (p *Parcel) WriteStrongBinderLocal(ptr, cookie uintptr) error {
 		Kind:       parcelObjectBinder,
 		ObjectKind: ObjectStrongBinder,
 		Offset:     start,
-		Length:     flatObjectSize,
+		Length:     flatBinderObjectWireSize,
+		Stability:  stability,
 	})
 	return nil
 }
@@ -423,6 +449,11 @@ func (p *Parcel) WriteStrongBinderLocal(ptr, cookie uintptr) error {
 // WriteStrongBinderHandle writes a remote Binder handle object for kernel
 // Binder IPC.
 func (p *Parcel) WriteStrongBinderHandle(handle uint32) error {
+	return p.WriteStrongBinderHandleWithStability(handle, systemStabilityLevel)
+}
+
+// WriteStrongBinderHandleWithStability writes a remote Binder handle with an explicit stability label.
+func (p *Parcel) WriteStrongBinderHandleWithStability(handle uint32, stability StabilityLevel) error {
 	if p == nil {
 		return ErrBadParcelable
 	}
@@ -435,7 +466,7 @@ func (p *Parcel) WriteStrongBinderHandle(handle uint32) error {
 	}); err != nil {
 		return err
 	}
-	if err := p.WriteInt32(systemStabilityLevel); err != nil {
+	if err := p.WriteInt32(int32(stability)); err != nil {
 		return err
 	}
 
@@ -443,8 +474,9 @@ func (p *Parcel) WriteStrongBinderHandle(handle uint32) error {
 		Kind:       parcelObjectBinder,
 		ObjectKind: ObjectStrongBinder,
 		Offset:     start,
-		Length:     flatObjectSize,
+		Length:     flatBinderObjectWireSize,
 		Handle:     handle,
+		Stability:  stability,
 	})
 	return nil
 }
@@ -454,6 +486,9 @@ func (p *Parcel) WriteStrongBinderHandle(handle uint32) error {
 func (p *Parcel) WriteStrongBinder(b Binder) error {
 	if b == nil {
 		return p.WriteNullStrongBinder()
+	}
+	if m, ok := b.(ParcelBinderStabilityMarshaler); ok {
+		return m.WriteBinderToParcelWithStability(p, BinderStability(b))
 	}
 	if m, ok := b.(ParcelBinderMarshaler); ok {
 		return m.WriteBinderToParcel(p)
@@ -473,7 +508,7 @@ func (p *Parcel) WriteNullStrongBinder() error {
 	}); err != nil {
 		return err
 	}
-	return p.WriteInt32(0)
+	return p.WriteInt32(int32(StabilityUndeclared))
 }
 
 // WriteFileDescriptor writes a low-level Binder file descriptor object.
@@ -668,14 +703,20 @@ func (p *Parcel) ReadObject() (*ParcelObject, error) {
 
 	start := p.pos
 	if ref, ok := p.objectAt(start); ok {
-		if _, err := p.readBlock(ref.Length); err != nil {
+		length := wireObjectLength(ref.ObjectKind, ref.Length)
+		block, err := p.readBlock(length)
+		if err != nil {
 			return nil, err
 		}
 		obj := ParcelObject{
-			Kind:   ref.ObjectKind,
-			Offset: ref.Offset,
-			Length: ref.Length,
-			Handle: ref.Handle,
+			Kind:      ref.ObjectKind,
+			Offset:    ref.Offset,
+			Length:    length,
+			Handle:    ref.Handle,
+			Stability: ref.Stability,
+		}
+		if ref.ObjectKind == ObjectStrongBinder && length >= flatBinderObjectWireSize {
+			obj.Stability = StabilityLevel(int32(binary.LittleEndian.Uint32(block[flatObjectSize : flatObjectSize+4])))
 		}
 		return &obj, nil
 	}
@@ -688,10 +729,16 @@ func (p *Parcel) ReadObject() (*ParcelObject, error) {
 		return nil, fmt.Errorf("%w: expected parcel object at offset %d", ErrBadParcelable, start)
 	}
 
+	stability, err := p.ReadInt32()
+	if err != nil {
+		return nil, err
+	}
+
 	return &ParcelObject{
-		Kind:   ObjectNullBinder,
-		Offset: start,
-		Length: len(block),
+		Kind:      ObjectNullBinder,
+		Offset:    start,
+		Length:    flatBinderObjectWireSize,
+		Stability: StabilityLevel(stability),
 	}, nil
 }
 
@@ -723,11 +770,17 @@ func (p *Parcel) ReadStrongBinder() (Binder, error) {
 
 	switch typ {
 	case flatTypeHandle:
+		if p.binderObjectResolve != nil {
+			return p.binderObjectResolve(*obj), nil
+		}
 		if p.binderResolver == nil {
 			return nil, fmt.Errorf("%w: no binder handle resolver configured", ErrUnsupported)
 		}
 		return p.binderResolver(obj.Handle), nil
 	case flatTypeBinder:
+		if p.localBinderObjectResolve != nil {
+			return p.localBinderObjectResolve(*obj, cookie), nil
+		}
 		if p.localBinderResolve == nil {
 			return nil, fmt.Errorf("%w: no local binder resolver configured", ErrUnsupported)
 		}
@@ -903,6 +956,16 @@ func objectKindToRef(kind ObjectKind) parcelObjectKind {
 	}
 }
 
+func wireObjectLength(kind ObjectKind, length int) int {
+	switch kind {
+	case ObjectStrongBinder, ObjectWeakBinder, ObjectNullBinder:
+		if length < flatBinderObjectWireSize {
+			return flatBinderObjectWireSize
+		}
+	}
+	return length
+}
+
 func (p *Parcel) readStrongBinderObject() (*ParcelObject, uint32, uintptr, error) {
 	if p == nil {
 		return nil, 0, 0, ErrBadParcelable
@@ -918,13 +981,15 @@ func (p *Parcel) readStrongBinderObject() (*ParcelObject, uint32, uintptr, error
 	switch typ {
 	case flatTypeBinder:
 		if isNullBinderBlock(block) {
-			if _, err := p.ReadInt32(); err != nil {
+			stability, err := p.ReadInt32()
+			if err != nil {
 				return nil, 0, 0, err
 			}
 			return &ParcelObject{
-				Kind:   ObjectNullBinder,
-				Offset: start,
-				Length: len(block),
+				Kind:      ObjectNullBinder,
+				Offset:    start,
+				Length:    flatBinderObjectWireSize,
+				Stability: StabilityLevel(stability),
 			}, typ, 0, nil
 		}
 	case flatTypeHandle:
@@ -940,15 +1005,17 @@ func (p *Parcel) readStrongBinderObject() (*ParcelObject, uint32, uintptr, error
 	if ref.ObjectKind != ObjectStrongBinder {
 		return nil, 0, 0, fmt.Errorf("%w: expected strong binder object, got %d", ErrBadParcelable, ref.ObjectKind)
 	}
-	if _, err := p.ReadInt32(); err != nil {
+	stability, err := p.ReadInt32()
+	if err != nil {
 		return nil, 0, 0, err
 	}
 
 	obj := &ParcelObject{
-		Kind:   ref.ObjectKind,
-		Offset: ref.Offset,
-		Length: ref.Length,
-		Handle: ref.Handle,
+		Kind:      ref.ObjectKind,
+		Offset:    ref.Offset,
+		Length:    wireObjectLength(ref.ObjectKind, ref.Length),
+		Handle:    ref.Handle,
+		Stability: StabilityLevel(stability),
 	}
 	cookie := uintptr(binary.LittleEndian.Uint64(block[16:24]))
 	if typ == flatTypeHandle {

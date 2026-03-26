@@ -2,6 +2,8 @@ package gomodel
 
 import (
 	"fmt"
+	goast "go/ast"
+	"go/constant"
 	"go/token"
 	"path/filepath"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/wdsgyj/libbinder-go/internal/aidl/ast"
+	aidlexpr "github.com/wdsgyj/libbinder-go/internal/aidl/expr"
 )
 
 type LowerOptions struct {
@@ -117,7 +120,18 @@ func (s *lowerState) collectDecl(file *ast.File, current *scope, owner *namedSym
 			}
 		}
 	case *ast.ParcelableDecl:
-		s.registerDecl(file, current, owner, d.Name, namedParcelable, d)
+		sym := s.registerDecl(file, current, owner, d.Name, namedParcelable, d)
+		if len(d.Decls) != 0 {
+			nestedScope := &scope{
+				parent:  current,
+				prefix:  sym.aidlName,
+				symbols: map[string]*namedSymbol{},
+			}
+			sym.scope = nestedScope
+			for _, nested := range d.Decls {
+				s.collectDecl(file, nestedScope, sym, nested)
+			}
+		}
 	case *ast.EnumDecl:
 		s.registerDecl(file, current, owner, d.Name, namedEnum, d)
 	case *ast.UnionDecl:
@@ -206,6 +220,8 @@ func (s *lowerState) lowerInterface(current *scope, owner *namedSymbol, decl *as
 		}
 	}
 
+	constNames := map[string]string{}
+	constValues := aidlexpr.Env{}
 	txCode := uint32(1)
 	for _, member := range decl.Members {
 		switch m := member.(type) {
@@ -214,12 +230,21 @@ func (s *lowerState) lowerInterface(current *scope, owner *namedSymbol, decl *as
 			if typ == nil {
 				continue
 			}
+			value := s.lowerValueExpression(sym.scope, m.Value, constNames)
+			if value == "" {
+				value = aidlexpr.Normalize(m.Value)
+			}
+			goName := sym.goName + exportName(m.Name)
 			iface.Consts = append(iface.Consts, Const{
 				Name:   m.Name,
-				GoName: sym.goName + exportName(m.Name),
+				GoName: goName,
 				Type:   typ,
-				Value:  m.Value,
+				Value:  value,
 			})
+			if v, err := aidlexpr.Eval(m.Value, constValues); err == nil {
+				s.registerValueAliases(constValues, sym.aidlName+"."+m.Name, v)
+			}
+			s.registerNameAliases(constNames, sym.aidlName+"."+m.Name, goName)
 		case *ast.MethodDecl:
 			method := s.lowerMethod(sym.scope, iface, m, txCode)
 			if method != nil {
@@ -320,6 +345,7 @@ func (s *lowerState) lowerParcelable(current *scope, owner *namedSymbol, decl *a
 		AIDLName:   sym.aidlName,
 		GoName:     sym.goName,
 		Structured: decl.Structured,
+		FixedSize:  hasFixedSizeAnnotation(decl.Annotations),
 	}
 	if !decl.Structured {
 		if cfg, ok := s.customParcelable(sym.aidlName); ok {
@@ -333,18 +359,56 @@ func (s *lowerState) lowerParcelable(current *scope, owner *namedSymbol, decl *a
 			}
 		}
 	}
-	for _, field := range decl.Fields {
-		typ := s.lowerType(current, applyFieldTypeAnnotations(field))
+	fieldScope := current
+	if sym.scope != nil {
+		fieldScope = sym.scope
+	}
+	constNames := map[string]string{}
+	constValues := aidlexpr.Env{}
+	for _, c := range decl.Consts {
+		typ := s.lowerType(fieldScope, c.Type)
 		if typ == nil {
 			return
 		}
-		parc.Fields = append(parc.Fields, Field{
-			Name:   field.Name,
-			GoName: exportName(field.Name),
+		value := s.lowerValueExpression(fieldScope, c.Value, constNames)
+		if value == "" {
+			value = aidlexpr.Normalize(c.Value)
+		}
+		goName := sym.goName + exportName(c.Name)
+		parc.Consts = append(parc.Consts, Const{
+			Name:   c.Name,
+			GoName: goName,
 			Type:   typ,
+			Value:  value,
+		})
+		if v, err := aidlexpr.Eval(c.Value, constValues); err == nil {
+			s.registerValueAliases(constValues, sym.aidlName+"."+c.Name, v)
+		}
+		s.registerNameAliases(constNames, sym.aidlName+"."+c.Name, goName)
+	}
+	for _, field := range decl.Fields {
+		typ := s.lowerType(fieldScope, applyFieldTypeAnnotations(field))
+		if typ == nil {
+			return
+		}
+		defaultValue := ""
+		if field.DefaultValue != "" {
+			defaultValue = s.lowerValueExpression(fieldScope, field.DefaultValue, constNames)
+			if defaultValue == "" {
+				defaultValue = aidlexpr.Normalize(field.DefaultValue)
+			}
+		}
+		parc.Fields = append(parc.Fields, Field{
+			Name:         field.Name,
+			GoName:       exportName(field.Name),
+			Type:         typ,
+			DefaultValue: defaultValue,
 		})
 	}
 	s.out.Parcelables = append(s.out.Parcelables, parc)
+	for _, nested := range decl.Decls {
+		s.lowerDecl(fieldScope, sym, nested)
+	}
 }
 
 func (s *lowerState) lowerEnum(current *scope, owner *namedSymbol, decl *ast.EnumDecl) {
@@ -361,12 +425,43 @@ func (s *lowerState) lowerEnum(current *scope, owner *namedSymbol, decl *ast.Enu
 		GoName:     sym.goName,
 		Underlying: s.enumBackingType(decl.Annotations),
 	}
+	memberNames := map[string]string{}
+	memberValues := aidlexpr.Env{}
+	var nextValue int64
+	nextKnown := true
 	for _, member := range decl.Members {
+		goName := sym.goName + exportName(member.Name)
+		value := member.Value
+		if value != "" {
+			value = s.lowerValueExpression(current, value, memberNames)
+			if value == "" {
+				value = aidlexpr.Normalize(member.Value)
+			}
+			if v, err := aidlexpr.EvalInt64(member.Value, memberValues); err == nil {
+				nextValue = v + 1
+				nextKnown = true
+				s.registerValueAliases(memberValues, sym.aidlName+"."+member.Name, constant.MakeInt64(v))
+			} else {
+				nextKnown = false
+			}
+		} else {
+			if !nextKnown {
+				s.diags = append(s.diags, Diagnostic{
+					Message: fmt.Sprintf("enum %s member %s requires an explicit value after a non-evaluable expression", sym.goName, member.Name),
+				})
+				value = "0"
+			} else {
+				value = fmt.Sprintf("%d", nextValue)
+				s.registerValueAliases(memberValues, sym.aidlName+"."+member.Name, constant.MakeInt64(nextValue))
+				nextValue++
+			}
+		}
 		enum.Members = append(enum.Members, EnumMember{
 			Name:   member.Name,
-			GoName: sym.goName + exportName(member.Name),
-			Value:  member.Value,
+			GoName: goName,
+			Value:  value,
 		})
+		s.registerNameAliases(memberNames, sym.aidlName+"."+member.Name, goName)
 	}
 	s.out.Enums = append(s.out.Enums, enum)
 }
@@ -410,8 +505,9 @@ func (s *lowerState) lowerUnion(current *scope, owner *namedSymbol, decl *ast.Un
 	}
 
 	union := &Union{
-		AIDLName: sym.aidlName,
-		GoName:   sym.goName,
+		AIDLName:  sym.aidlName,
+		GoName:    sym.goName,
+		FixedSize: hasFixedSizeAnnotation(decl.Annotations),
 	}
 	for _, field := range decl.Fields {
 		typ := s.lowerType(current, applyFieldTypeAnnotations(field))
@@ -818,12 +914,175 @@ func hasVintfStabilityAnnotation(annotations []ast.Annotation) bool {
 	return false
 }
 
+func hasFixedSizeAnnotation(annotations []ast.Annotation) bool {
+	for _, ann := range annotations {
+		if ann.Name == "FixedSize" || ann.Name == "android.annotation.FixedSize" {
+			return true
+		}
+	}
+	return false
+}
+
 func applyFieldTypeAnnotations(field ast.Field) ast.TypeRef {
 	ref := field.Type
-	if hasNullableAnnotation(field.Annotations) {
+	if hasNullableAnnotation(field.Annotations) || hasNullableAnnotation(ref.Annotations) {
 		ref.Nullable = true
 	}
 	return ref
+}
+
+func (s *lowerState) lowerValueExpression(current *scope, src string, names map[string]string) string {
+	if strings.TrimSpace(src) == "" {
+		return ""
+	}
+	node, err := aidlexpr.Parse(src)
+	if err != nil {
+		s.diags = append(s.diags, Diagnostic{
+			Message: fmt.Sprintf("invalid expression %q: %v", src, err),
+		})
+		return ""
+	}
+	value, err := s.renderValueExpr(current, node, names)
+	if err != nil {
+		s.diags = append(s.diags, Diagnostic{
+			Message: fmt.Sprintf("lower expression %q: %v", src, err),
+		})
+		return ""
+	}
+	return value
+}
+
+func (s *lowerState) renderValueExpr(current *scope, node goast.Expr, names map[string]string) (string, error) {
+	switch n := node.(type) {
+	case *goast.BasicLit:
+		return n.Value, nil
+	case *goast.Ident:
+		switch n.Name {
+		case "true", "false", "nil":
+			return n.Name, nil
+		}
+		if names != nil {
+			if value, ok := names[n.Name]; ok {
+				return value, nil
+			}
+		}
+		return n.Name, nil
+	case *goast.SelectorExpr:
+		full, ok := selectorQName(n)
+		if !ok {
+			return "", fmt.Errorf("unsupported selector")
+		}
+		if names != nil {
+			if value, ok := names[full]; ok {
+				return value, nil
+			}
+		}
+		if value, ok := s.lookupEnumMemberGoName(current, full); ok {
+			return value, nil
+		}
+		return full, nil
+	case *goast.ParenExpr:
+		inner, err := s.renderValueExpr(current, n.X, names)
+		if err != nil {
+			return "", err
+		}
+		return "(" + inner + ")", nil
+	case *goast.UnaryExpr:
+		inner, err := s.renderValueExpr(current, n.X, names)
+		if err != nil {
+			return "", err
+		}
+		return n.Op.String() + inner, nil
+	case *goast.BinaryExpr:
+		left, err := s.renderValueExpr(current, n.X, names)
+		if err != nil {
+			return "", err
+		}
+		right, err := s.renderValueExpr(current, n.Y, names)
+		if err != nil {
+			return "", err
+		}
+		return "(" + left + n.Op.String() + right + ")", nil
+	default:
+		return "", fmt.Errorf("unsupported expression %T", node)
+	}
+}
+
+func (s *lowerState) lookupEnumMemberGoName(current *scope, qname string) (string, bool) {
+	dot := strings.LastIndexByte(qname, '.')
+	if dot < 0 {
+		return "", false
+	}
+	typeName := qname[:dot]
+	memberName := qname[dot+1:]
+	sym := s.lookupType(current, typeName)
+	if sym == nil || sym.kind != namedEnum {
+		return "", false
+	}
+	decl, ok := sym.decl.(*ast.EnumDecl)
+	if !ok {
+		return "", false
+	}
+	for _, member := range decl.Members {
+		if member.Name == memberName {
+			return sym.goName + exportName(member.Name), true
+		}
+	}
+	return "", false
+}
+
+func registerAliases(full string, fn func(string)) {
+	if full == "" || fn == nil {
+		return
+	}
+	parts := strings.Split(full, ".")
+	for i := range parts {
+		fn(strings.Join(parts[i:], "."))
+	}
+}
+
+func (s *lowerState) registerNameAliases(names map[string]string, full string, goName string) {
+	if names == nil {
+		return
+	}
+	registerAliases(full, func(alias string) {
+		if _, exists := names[alias]; !exists {
+			names[alias] = goName
+		}
+	})
+}
+
+func (s *lowerState) registerValueAliases(env aidlexpr.Env, full string, value constant.Value) {
+	if env == nil || value == nil {
+		return
+	}
+	registerAliases(full, func(alias string) {
+		if _, exists := env[alias]; !exists {
+			env[alias] = value
+		}
+	})
+}
+
+func selectorQName(node *goast.SelectorExpr) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	parts := []string{node.Sel.Name}
+	for {
+		switch x := node.X.(type) {
+		case *goast.Ident:
+			parts = append(parts, x.Name)
+			for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+				parts[i], parts[j] = parts[j], parts[i]
+			}
+			return strings.Join(parts, "."), true
+		case *goast.SelectorExpr:
+			node = x
+			parts = append(parts, node.Sel.Name)
+		default:
+			return "", false
+		}
+	}
 }
 
 func parseIntLiteral(text string) (int64, error) {

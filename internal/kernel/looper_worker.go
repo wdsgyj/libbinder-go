@@ -198,6 +198,7 @@ func (w *LooperWorker) handleTransaction(ctx context.Context, tx *BinderTransact
 
 	request := api.NewParcelWire(requestBytes, requestObjects)
 	request.SetBinderResolvers(w.Backend.binderResolver, w.Backend.localResolver)
+	request.SetBinderObjectResolvers(w.Backend.binderObjectResolver, w.Backend.localObjectResolver)
 	reply, err := w.Backend.dispatchLocalTransaction(ctx, tx.CookiePointer(), tx.Code, request, tx.Flags, transactionMetadata{
 		CallingPID: tx.SenderPID,
 		CallingUID: tx.SenderEUID,

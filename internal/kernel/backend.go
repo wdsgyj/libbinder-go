@@ -32,6 +32,9 @@ type Backend struct {
 
 	binderResolver func(uint32) api.Binder
 	localResolver  func(uintptr) api.Binder
+
+	binderObjectResolver func(api.ParcelObject) api.Binder
+	localObjectResolver  func(api.ParcelObject, uintptr) api.Binder
 }
 
 func NewBackend(driverPath string) *Backend {
@@ -87,6 +90,14 @@ func (b *Backend) SetParcelResolvers(handleResolver func(uint32) api.Binder, loc
 	b.localResolver = localResolver
 }
 
+func (b *Backend) SetParcelObjectResolvers(handleResolver func(api.ParcelObject) api.Binder, localResolver func(api.ParcelObject, uintptr) api.Binder) {
+	if b == nil {
+		return
+	}
+	b.binderObjectResolver = handleResolver
+	b.localObjectResolver = localResolver
+}
+
 func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32, data *api.Parcel, flags api.Flags) (*api.Parcel, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -120,6 +131,7 @@ func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32
 
 		reply = api.NewParcelWire(replyBytes, replyObjects)
 		reply.SetBinderResolvers(b.binderResolver, b.localResolver)
+		reply.SetBinderObjectResolvers(b.binderObjectResolver, b.localObjectResolver)
 		return nil
 	})
 	if err != nil {
