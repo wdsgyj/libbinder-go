@@ -39,6 +39,7 @@
   - 复刻 pipe + worker goroutine + timeout 的客户端侧 dump 控制语义
 - 示例与文档
   - `demo/echo` 提供最小 server/client 通信例子
+  - `demo/cmdinputproto` 提供 `cmd input` 协议模拟与完整测试
   - `doc/` 下保存分析、路线图、实现计划和架构文档
   - `aosp-src/` 下保留上游 AOSP 参考源码
 
@@ -69,6 +70,7 @@
 │   ├── input/        # AOSP input 的 Go 实现
 │   └── service/      # AOSP service 的 Go 实现
 ├── demo/
+│   ├── cmdinputproto/ # cmd input 协议模拟与测试
 │   └── echo/         # 最小 Binder server/client 示例
 ├── doc/              # 设计、分析、路线图、架构文档
 ├── internal/         # runtime、kernel、protocol、aidl 内部实现
@@ -307,4 +309,6 @@ ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDR
 - [doc/servicemanager-analysis.md](./doc/servicemanager-analysis.md)
 - [doc/dumpsys-analysis.md](./doc/dumpsys-analysis.md)
 - [doc/dumpstate-analysis.md](./doc/dumpstate-analysis.md)
+- [doc/cmd-input-protocol.md](./doc/cmd-input-protocol.md)
+- [demo/cmdinputproto/README.md](./demo/cmdinputproto/README.md)
 - [demo/echo/README.md](./demo/echo/README.md)

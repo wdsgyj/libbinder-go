@@ -12,6 +12,27 @@ import (
 	api "github.com/wdsgyj/libbinder-go/binder"
 )
 
+type openedConn interface {
+	ServiceManager() api.ServiceManager
+	Close() error
+}
+
+var openConn = func(cfg libbinder.Config) (openedConn, error) {
+	return libbinder.Open(cfg)
+}
+
+var (
+	parcelWriteInt32 = func(p *api.Parcel, v int32) error {
+		return p.WriteInt32(v)
+	}
+	parcelWriteString = func(p *api.Parcel, v string) error {
+		return p.WriteString(v)
+	}
+	parcelWriteNullStrongBinder = func(p *api.Parcel) error {
+		return p.WriteStrongBinder(nil)
+	}
+)
+
 const (
 	inputServiceName    = "input"
 	unavailableExitCode = 20
@@ -36,7 +57,7 @@ type resolvedOptions struct {
 }
 
 func Main(ctx context.Context, argv []string, stdout io.Writer, stderr io.Writer) int {
-	conn, err := libbinder.Open(libbinder.Config{})
+	conn, err := openConn(libbinder.Config{})
 	if err != nil {
 		fmt.Fprintln(stderr, "input: Unable to get default service manager!")
 		return unavailableExitCode
@@ -61,11 +82,7 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resolved, err := resolveOptions(opts)
-	if err != nil {
-		fmt.Fprintln(writerOrDiscard(opts.Error), "input:", err)
-		return unavailableExitCode
-	}
+	resolved := resolveOptions(opts)
 	if resolved.serviceManager == nil {
 		fmt.Fprintln(resolved.errorLog, "input: Unable to get default service manager!")
 		return unavailableExitCode
@@ -94,7 +111,7 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 	return 0
 }
 
-func resolveOptions(opts Options) (resolvedOptions, error) {
+func resolveOptions(opts Options) resolvedOptions {
 	return resolvedOptions{
 		serviceManager: opts.ServiceManager,
 		outputLog:      writerOrDiscard(opts.Output),
@@ -102,7 +119,7 @@ func resolveOptions(opts Options) (resolvedOptions, error) {
 		inFD:           opts.InFD,
 		outFD:          opts.OutFD,
 		errFD:          opts.ErrFD,
-	}, nil
+	}
 }
 
 func writerOrDiscard(w io.Writer) io.Writer {
@@ -113,29 +130,34 @@ func writerOrDiscard(w io.Writer) io.Writer {
 }
 
 func writeShellCommandRequest(p *api.Parcel, inFD int, outFD int, errFD int, args []string) error {
-	if err := p.WriteFileDescriptor(api.NewFileDescriptor(inFD)); err != nil {
+	err := p.WriteFileDescriptor(api.NewFileDescriptor(inFD))
+	if err == nil {
+		err = p.WriteFileDescriptor(api.NewFileDescriptor(outFD))
+	}
+	if err == nil {
+		err = p.WriteFileDescriptor(api.NewFileDescriptor(errFD))
+	}
+	if err != nil {
 		return err
 	}
-	if err := p.WriteFileDescriptor(api.NewFileDescriptor(outFD)); err != nil {
-		return err
-	}
-	if err := p.WriteFileDescriptor(api.NewFileDescriptor(errFD)); err != nil {
-		return err
-	}
-	if err := p.WriteInt32(int32(len(args))); err != nil {
-		return err
-	}
+
+	err = parcelWriteInt32(p, int32(len(args)))
 	for _, arg := range args {
-		if err := p.WriteString(arg); err != nil {
-			return err
+		if err == nil {
+			err = parcelWriteString(p, arg)
 		}
 	}
-	// `input` shell commands are synchronous in practice; sending nil here keeps
-	// the client aligned with device behavior without depending on callback IPC.
-	if err := p.WriteStrongBinder(nil); err != nil {
+	if err != nil {
 		return err
 	}
-	if err := p.WriteStrongBinder(nil); err != nil {
+
+	// `input` shell commands are synchronous in practice; sending nil here keeps
+	// the client aligned with device behavior without depending on callback IPC.
+	err = parcelWriteNullStrongBinder(p)
+	if err == nil {
+		err = parcelWriteNullStrongBinder(p)
+	}
+	if err != nil {
 		return err
 	}
 	return p.SetPosition(0)

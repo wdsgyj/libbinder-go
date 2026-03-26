@@ -10,6 +10,10 @@
   - `cmd/input`
   - 通过 `input` service 的 `SHELL_COMMAND_TRANSACTION` 复刻 shell 用户可用的 `cmd input` 主流程
   - 新增单测覆盖参数转发、空参数调用、缺失服务、事务错误映射
+- 增加 `cmd input` 协议分析与 demo：
+  - `doc/cmd-input-protocol.md`
+  - `demo/cmdinputproto`
+  - 覆盖 request parcel 结构、help/known/unknown command、`ResultReceiver` 回传与 `ShellCallback` 未使用路径
 - 增加 AOSP `frameworks/native/cmds/service` 的 Go 实现：
   - `cmd/service`
   - 覆盖 `list` / `check` / `call`
@@ -51,6 +55,8 @@
 - 宿主机：
   - `go test ./...`
 - 新增单测覆盖：
+  - `cmd/input` 100% statements
+  - `demo/cmdinputproto` 100% statements
   - `cmd/dumpsys`
   - `internal/binderdebug`
   - `binder/dump_test.go`

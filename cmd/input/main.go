@@ -7,7 +7,10 @@ import (
 	"syscall"
 )
 
+var signalIgnore = signal.Ignore
+var processExit = os.Exit
+
 func main() {
-	signal.Ignore(syscall.SIGPIPE)
-	os.Exit(ProcessExitCode(Main(context.Background(), os.Args[1:], os.Stdout, os.Stderr)))
+	signalIgnore(syscall.SIGPIPE)
+	processExit(ProcessExitCode(Main(context.Background(), os.Args[1:], os.Stdout, os.Stderr)))
 }
