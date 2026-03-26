@@ -116,7 +116,7 @@ func (b *Backend) TransactHandle(ctx context.Context, handle uint32, code uint32
 
 	var reply *api.Parcel
 	err = client.Do(ctx, func(state *ThreadState) error {
-		replyBytes, replyObjects, _, callErr := b.Driver.TransactHandleParcel(handle, code, request, requestOffsets, flags)
+		replyBytes, replyObjects, callErr := b.transactHandleParcel(ctx, state, handle, code, request, requestOffsets, flags)
 		state.OutBuffer = append(state.OutBuffer[:0], request...)
 		if callErr != nil {
 			state.InBuffer = state.InBuffer[:0]

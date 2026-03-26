@@ -25,6 +25,9 @@
 - AOSP `cmd` 的 Go 实现
   - `cmd/cmd`
   - 支持 `-l`、`-w`、shell command transact、`IShellCallback`、`IResultReceiver`
+- AOSP `input` 的 Go 实现
+  - `cmd/input`
+  - 通过 `input` service 的 shell command transact 复刻 `cmd input` 主流程
 - AOSP `service` 的 Go 实现
   - `cmd/service`
   - 支持 `list`、`check`、`call`
@@ -63,6 +66,7 @@
 │   ├── aidlgen/      # AIDL -> Go 代码生成器
 │   ├── cmd/          # AOSP cmd 的 Go 实现
 │   ├── dumpsys/      # AOSP dumpsys 的 Go 实现
+│   ├── input/        # AOSP input 的 Go 实现
 │   └── service/      # AOSP service 的 Go 实现
 ├── demo/
 │   └── echo/         # 最小 Binder server/client 示例
@@ -197,7 +201,31 @@ adb shell '/data/local/tmp/libbinder-go-service call activity 1 s16 hello'
 - 它和 AOSP 原版一样，要求你自己知道 transaction code 和参数布局
 - 不建议在非 Android 主机上直接 `go run ./cmd/service ...`
 
-### 5. 构建并运行 `dumpsys`
+### 5. 构建并运行 `input`
+
+为 Android arm64 构建：
+
+```bash
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-input ./cmd/input
+```
+
+推送并运行：
+
+```bash
+adb push /tmp/libbinder-go-input /data/local/tmp/libbinder-go-input
+adb shell chmod 755 /data/local/tmp/libbinder-go-input
+adb shell /data/local/tmp/libbinder-go-input
+adb shell '/data/local/tmp/libbinder-go-input keyevent 3'
+adb shell '/data/local/tmp/libbinder-go-input tap 100 200'
+```
+
+说明：
+
+- `cmd/input` 走的是 `input` service 的 shell-command Binder 通道，目标是复刻 shell 用户可用的 `cmd input` 行为
+- 当前实现不尝试在客户端本地承接 `IShellCallback` / `IResultReceiver` 回调，而是直接发起命令事务；这更贴近 `input` 的实际使用路径，也能避免部分设备上的回调阻塞问题
+- 不建议在非 Android 主机上直接 `go run ./cmd/input ...`
+
+### 6. 构建并运行 `dumpsys`
 
 为 Android arm64 构建：
 
@@ -233,7 +261,7 @@ adb shell '/data/local/tmp/libbinder-go-dumpsys -T 2000 activity activities'
 - `--thread` / `--clients` 的结果是否可用，取决于设备是否暴露可读的 binder debug 信息
 - 不建议在非 Android 主机上直接 `go run ./cmd/dumpsys ...`
 
-### 6. 运行 echo demo
+### 7. 运行 echo demo
 
 构建：
 

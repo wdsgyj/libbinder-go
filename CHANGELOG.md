@@ -6,6 +6,10 @@
 
 ### Added
 
+- 增加 AOSP `cmd input` 的 Go 实现：
+  - `cmd/input`
+  - 通过 `input` service 的 `SHELL_COMMAND_TRANSACTION` 复刻 shell 用户可用的 `cmd input` 主流程
+  - 新增单测覆盖参数转发、空参数调用、缺失服务、事务错误映射
 - 增加 AOSP `frameworks/native/cmds/service` 的 Go 实现：
   - `cmd/service`
   - 覆盖 `list` / `check` / `call`
@@ -54,8 +58,12 @@
 ### Verification
 
 - Android arm64 构建：
+  - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-input ./cmd/input`
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-dumpsys ./cmd/dumpsys`
 - 真机验证：
+  - `/data/local/tmp/libbinder-go-input`
+  - `/data/local/tmp/libbinder-go-input not-a-command`
+  - `/data/local/tmp/libbinder-go-input keyevent 0`
   - `-l`
   - `--pid activity`
   - `--thread activity`
