@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### Added
+
+- 增加 AOSP `frameworks/native/cmds/service` 的 Go 实现：
+  - `cmd/service`
+  - 覆盖 `list` / `check` / `call`
+  - `call` 支持 `i32` / `i64` / `f` / `d` / `s16` / `null` / `fd` / `nfd` / `afd` / `intent`
+  - 新增单测覆盖参数编解码、FD 传递、intent 编码、reply dump 与帮助输出
+
 ### Changed
 
 - `ListenRPCUnix("")` 现在会自动分配当前环境可用的临时监听地址：

@@ -25,6 +25,10 @@
 - AOSP `cmd` 的 Go 实现
   - `cmd/cmd`
   - 支持 `-l`、`-w`、shell command transact、`IShellCallback`、`IResultReceiver`
+- AOSP `service` 的 Go 实现
+  - `cmd/service`
+  - 支持 `list`、`check`、`call`
+  - `call` 支持 `i32`、`i64`、`f`、`d`、`s16`、`null`、`fd`、`nfd`、`afd`、`intent`
 - 示例与文档
   - `demo/echo` 提供最小 server/client 通信例子
   - `doc/` 下保存分析、路线图、实现计划和架构文档
@@ -157,7 +161,36 @@ adb shell '/data/local/tmp/libbinder-go-cmd -w activity services'
 - `cmd` 依赖目标设备的 Binder / ServiceManager 环境
 - 不建议在非 Android 主机上直接 `go run ./cmd/cmd -l`
 
-### 4. 运行 echo demo
+### 4. 构建并运行 `service`
+
+为 Android arm64 构建：
+
+```bash
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-service ./cmd/service
+```
+
+推送到设备并列出服务：
+
+```bash
+adb push /tmp/libbinder-go-service /data/local/tmp/libbinder-go-service
+adb shell chmod 755 /data/local/tmp/libbinder-go-service
+adb shell /data/local/tmp/libbinder-go-service list
+adb shell /data/local/tmp/libbinder-go-service check activity
+```
+
+原始发起 Binder transact：
+
+```bash
+adb shell '/data/local/tmp/libbinder-go-service call activity 1 s16 hello'
+```
+
+说明：
+
+- `service` 是低层原始 Binder 调试工具，不是 shell-command 前端
+- 它和 AOSP 原版一样，要求你自己知道 transaction code 和参数布局
+- 不建议在非 Android 主机上直接 `go run ./cmd/service ...`
+
+### 5. 运行 echo demo
 
 构建：
 
@@ -199,4 +232,5 @@ ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDR
 - [doc/libbinder-go-aidl-full-plan.md](./doc/libbinder-go-aidl-full-plan.md)
 - [doc/libbinder-go-runtime-internal-architecture.md](./doc/libbinder-go-runtime-internal-architecture.md)
 - [doc/cmd-tool-analysis.md](./doc/cmd-tool-analysis.md)
+- [doc/service-tool-analysis.md](./doc/service-tool-analysis.md)
 - [demo/echo/README.md](./demo/echo/README.md)
