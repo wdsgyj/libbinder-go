@@ -33,6 +33,67 @@ const (
 	debugInfoTransactionID      = kernel.FirstCallTransaction + 15
 )
 
+type serviceManagerTransactions struct {
+	checkService           uint32
+	addService             uint32
+	listServices           uint32
+	registerNotify         uint32
+	unregisterNotify       uint32
+	isDeclared             uint32
+	declaredInstances      uint32
+	updatableViaApex       uint32
+	updatableNames         uint32
+	connectionInfo         uint32
+	registerClientCallback uint32
+	tryUnregister          uint32
+	debugInfo              uint32
+}
+
+var serviceManagerTransactionsCurrent = serviceManagerTransactions{
+	checkService:           checkServiceTransactionID,
+	addService:             addServiceTransactionID,
+	listServices:           listServicesTransactionID,
+	registerNotify:         registerNotifyTransactionID,
+	unregisterNotify:       unregisterNotifyTxID,
+	isDeclared:             isDeclaredTransactionID,
+	declaredInstances:      declaredInstancesTxID,
+	updatableViaApex:       updatableViaApexTxID,
+	updatableNames:         updatableNamesTxID,
+	connectionInfo:         connectionInfoTxID,
+	registerClientCallback: registerClientCallbackTxID,
+	tryUnregister:          tryUnregisterServiceTxID,
+	debugInfo:              debugInfoTransactionID,
+}
+
+var serviceManagerTransactionsLegacy13 = serviceManagerTransactions{
+	checkService:           kernel.FirstCallTransaction + 1,
+	addService:             kernel.FirstCallTransaction + 2,
+	listServices:           kernel.FirstCallTransaction + 3,
+	registerNotify:         kernel.FirstCallTransaction + 4,
+	unregisterNotify:       kernel.FirstCallTransaction + 5,
+	isDeclared:             kernel.FirstCallTransaction + 6,
+	declaredInstances:      kernel.FirstCallTransaction + 7,
+	updatableViaApex:       kernel.FirstCallTransaction + 8,
+	connectionInfo:         kernel.FirstCallTransaction + 9,
+	registerClientCallback: kernel.FirstCallTransaction + 10,
+	tryUnregister:          kernel.FirstCallTransaction + 11,
+	debugInfo:              kernel.FirstCallTransaction + 12,
+}
+
+var serviceManagerTransactionsLegacy12 = serviceManagerTransactions{
+	checkService:           kernel.FirstCallTransaction + 1,
+	addService:             kernel.FirstCallTransaction + 2,
+	listServices:           kernel.FirstCallTransaction + 3,
+	registerNotify:         kernel.FirstCallTransaction + 4,
+	unregisterNotify:       kernel.FirstCallTransaction + 5,
+	isDeclared:             kernel.FirstCallTransaction + 6,
+	declaredInstances:      kernel.FirstCallTransaction + 7,
+	updatableViaApex:       kernel.FirstCallTransaction + 8,
+	registerClientCallback: kernel.FirstCallTransaction + 9,
+	tryUnregister:          kernel.FirstCallTransaction + 10,
+	debugInfo:              kernel.FirstCallTransaction + 11,
+}
+
 type waitableServiceManager interface {
 	CheckService(context.Context, string) (api.Binder, error)
 	WatchServiceRegistrations(context.Context, string, api.ServiceRegistrationCallback) (api.Subscription, error)

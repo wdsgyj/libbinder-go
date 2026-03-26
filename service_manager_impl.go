@@ -16,6 +16,8 @@ type serviceManager struct {
 	cache       map[string]api.Binder
 	cacheHits   int
 	cacheMisses int
+	txProfile   serviceManagerTransactions
+	txKnown     bool
 }
 
 func (m *serviceManager) RegisterLocalHandler(handler api.Handler) (api.Binder, error) {
@@ -30,7 +32,7 @@ func (m *serviceManager) CheckService(ctx context.Context, name string) (api.Bin
 		return service, nil
 	}
 
-	reply, err := m.callName(ctx, checkServiceTransactionID, name)
+	reply, err := m.callName(ctx, m.transactions(ctx).checkService, name)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,7 @@ func (m *serviceManager) AddService(ctx context.Context, name string, handler ap
 		return err
 	}
 
-	reply, err := m.target.Transact(ctx, addServiceTransactionID, data, api.FlagNone)
+	reply, err := m.target.Transact(ctx, m.transactions(ctx).addService, data, api.FlagNone)
 	if err != nil {
 		return err
 	}
@@ -89,6 +91,10 @@ func (m *serviceManager) AddService(ctx context.Context, name string, handler ap
 }
 
 func (m *serviceManager) ListServices(ctx context.Context, dumpFlags api.DumpFlags) ([]string, error) {
+	tx := m.transactions(ctx)
+	if tx.listServices == 0 {
+		return nil, api.ErrUnsupported
+	}
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return nil, err
@@ -97,7 +103,7 @@ func (m *serviceManager) ListServices(ctx context.Context, dumpFlags api.DumpFla
 		return nil, err
 	}
 
-	reply, err := m.target.Transact(ctx, listServicesTransactionID, data, api.FlagNone)
+	reply, err := m.target.Transact(ctx, tx.listServices, data, api.FlagNone)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +149,12 @@ func (m *serviceManager) WatchServiceRegistrations(ctx context.Context, name str
 		return nil, err
 	}
 
-	reply, err := m.target.Transact(ctx, registerNotifyTransactionID, data, api.FlagNone)
+	tx := m.transactions(ctx)
+	if tx.registerNotify == 0 {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, api.ErrUnsupported
+	}
+	reply, err := m.target.Transact(ctx, tx.registerNotify, data, api.FlagNone)
 	if err != nil {
 		_ = m.conn.unregisterLocalNode(node.ID)
 		return nil, err
@@ -154,7 +165,7 @@ func (m *serviceManager) WatchServiceRegistrations(ctx context.Context, name str
 	}
 
 	sub.closeFn = func() error {
-		err := m.callNotificationUnregister(context.Background(), unregisterNotifyTxID, name, callbackBinder)
+		err := m.callNotificationUnregister(context.Background(), tx.unregisterNotify, name, callbackBinder)
 		cleanupErr := m.conn.unregisterLocalNode(node.ID)
 		if err != nil {
 			return err
@@ -165,7 +176,7 @@ func (m *serviceManager) WatchServiceRegistrations(ctx context.Context, name str
 }
 
 func (m *serviceManager) IsDeclared(ctx context.Context, name string) (bool, error) {
-	reply, err := m.callName(ctx, isDeclaredTransactionID, name)
+	reply, err := m.callName(ctx, m.transactions(ctx).isDeclared, name)
 	if err != nil {
 		return false, err
 	}
@@ -173,7 +184,7 @@ func (m *serviceManager) IsDeclared(ctx context.Context, name string) (bool, err
 }
 
 func (m *serviceManager) DeclaredInstances(ctx context.Context, iface string) ([]string, error) {
-	reply, err := m.callName(ctx, declaredInstancesTxID, iface)
+	reply, err := m.callName(ctx, m.transactions(ctx).declaredInstances, iface)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +192,7 @@ func (m *serviceManager) DeclaredInstances(ctx context.Context, iface string) ([
 }
 
 func (m *serviceManager) UpdatableViaApex(ctx context.Context, name string) (*string, error) {
-	reply, err := m.callName(ctx, updatableViaApexTxID, name)
+	reply, err := m.callName(ctx, m.transactions(ctx).updatableViaApex, name)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +200,7 @@ func (m *serviceManager) UpdatableViaApex(ctx context.Context, name string) (*st
 }
 
 func (m *serviceManager) UpdatableNames(ctx context.Context, apexName string) ([]string, error) {
-	reply, err := m.callName(ctx, updatableNamesTxID, apexName)
+	reply, err := m.callName(ctx, m.transactions(ctx).updatableNames, apexName)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +208,7 @@ func (m *serviceManager) UpdatableNames(ctx context.Context, apexName string) ([
 }
 
 func (m *serviceManager) ConnectionInfo(ctx context.Context, name string) (*api.ConnectionInfo, error) {
-	reply, err := m.callName(ctx, connectionInfoTxID, name)
+	reply, err := m.callName(ctx, m.transactions(ctx).connectionInfo, name)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +255,12 @@ func (m *serviceManager) WatchClients(ctx context.Context, name string, service 
 		return nil, err
 	}
 
-	reply, err := m.target.Transact(ctx, registerClientCallbackTxID, data, api.FlagNone)
+	tx := m.transactions(ctx)
+	if tx.registerClientCallback == 0 {
+		_ = m.conn.unregisterLocalNode(node.ID)
+		return nil, api.ErrUnsupported
+	}
+	reply, err := m.target.Transact(ctx, tx.registerClientCallback, data, api.FlagNone)
 	if err != nil {
 		_ = m.conn.unregisterLocalNode(node.ID)
 		return nil, err
@@ -264,6 +280,10 @@ func (m *serviceManager) TryUnregisterService(ctx context.Context, name string, 
 	if service == nil {
 		return api.ErrUnsupported
 	}
+	tx := m.transactions(ctx)
+	if tx.tryUnregister == 0 {
+		return api.ErrUnsupported
+	}
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return err
@@ -274,7 +294,7 @@ func (m *serviceManager) TryUnregisterService(ctx context.Context, name string, 
 	if err := data.WriteStrongBinder(service); err != nil {
 		return err
 	}
-	reply, err := m.target.Transact(ctx, tryUnregisterServiceTxID, data, api.FlagNone)
+	reply, err := m.target.Transact(ctx, tx.tryUnregister, data, api.FlagNone)
 	if err != nil {
 		return err
 	}
@@ -289,11 +309,15 @@ func (m *serviceManager) TryUnregisterService(ctx context.Context, name string, 
 }
 
 func (m *serviceManager) DebugInfo(ctx context.Context) ([]api.ServiceDebugInfo, error) {
+	tx := m.transactions(ctx)
+	if tx.debugInfo == 0 {
+		return nil, api.ErrUnsupported
+	}
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return nil, err
 	}
-	reply, err := m.target.Transact(ctx, debugInfoTransactionID, data, api.FlagNone)
+	reply, err := m.target.Transact(ctx, tx.debugInfo, data, api.FlagNone)
 	if err != nil {
 		return nil, err
 	}
@@ -307,6 +331,9 @@ func (m *serviceManager) DebugInfo(ctx context.Context) ([]api.ServiceDebugInfo,
 }
 
 func (m *serviceManager) callName(ctx context.Context, code uint32, name string) (*api.Parcel, error) {
+	if code == 0 {
+		return nil, api.ErrUnsupported
+	}
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return nil, err
@@ -330,6 +357,9 @@ func (m *serviceManager) callName(ctx context.Context, code uint32, name string)
 }
 
 func (m *serviceManager) callNotificationUnregister(ctx context.Context, code uint32, name string, callbackBinder api.Binder) error {
+	if code == 0 {
+		return api.ErrUnsupported
+	}
 	data := api.NewParcel()
 	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
 		return err
@@ -345,6 +375,93 @@ func (m *serviceManager) callNotificationUnregister(ctx context.Context, code ui
 		return err
 	}
 	return decodeStatusReply(reply)
+}
+
+func (m *serviceManager) transactions(ctx context.Context) serviceManagerTransactions {
+	if m == nil {
+		return serviceManagerTransactionsCurrent
+	}
+
+	m.mu.RLock()
+	if m.txKnown {
+		tx := m.txProfile
+		m.mu.RUnlock()
+		return tx
+	}
+	m.mu.RUnlock()
+
+	tx := m.detectTransactions(ctx)
+
+	m.mu.Lock()
+	if !m.txKnown {
+		m.txProfile = tx
+		m.txKnown = true
+	}
+	tx = m.txProfile
+	m.mu.Unlock()
+	return tx
+}
+
+func (m *serviceManager) detectTransactions(ctx context.Context) serviceManagerTransactions {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m == nil || m.target == nil {
+		return serviceManagerTransactionsCurrent
+	}
+	if err := m.probeCheckService(ctx, serviceManagerTransactionsCurrent.checkService); err == nil {
+		return serviceManagerTransactionsCurrent
+	}
+	if err := m.probeCheckService(ctx, serviceManagerTransactionsLegacy13.checkService); err == nil {
+		if err := m.probeConnectionInfo(ctx, serviceManagerTransactionsLegacy13.connectionInfo); err == nil {
+			return serviceManagerTransactionsLegacy13
+		}
+		return serviceManagerTransactionsLegacy12
+	}
+	return serviceManagerTransactionsCurrent
+}
+
+func (m *serviceManager) probeCheckService(ctx context.Context, code uint32) error {
+	reply, err := m.callNameDirect(ctx, code, "github.com/wdsgyj/libbinder-go.__smprobe__")
+	if err != nil {
+		return err
+	}
+	_, err = reply.ReadStrongBinder()
+	return err
+}
+
+func (m *serviceManager) probeConnectionInfo(ctx context.Context, code uint32) error {
+	reply, err := m.callNameDirect(ctx, code, "github.com/wdsgyj/libbinder-go.__smprobe__")
+	if err != nil {
+		return err
+	}
+	_, err = readNullableConnectionInfoFromParcel(reply)
+	return err
+}
+
+func (m *serviceManager) callNameDirect(ctx context.Context, code uint32, name string) (*api.Parcel, error) {
+	if code == 0 {
+		return nil, api.ErrUnsupported
+	}
+	data := api.NewParcel()
+	if err := data.WriteInterfaceToken(serviceManagerDescriptor); err != nil {
+		return nil, err
+	}
+	if err := data.WriteString(name); err != nil {
+		return nil, err
+	}
+
+	reply, err := m.target.Transact(ctx, code, data, api.FlagNone)
+	if err != nil {
+		return nil, err
+	}
+	if reply == nil {
+		return nil, api.ErrBadParcelable
+	}
+	if err := decodeStatusReply(reply); err != nil {
+		return nil, err
+	}
+	return reply, nil
 }
 
 func decodeStatusReply(reply *api.Parcel) error {
