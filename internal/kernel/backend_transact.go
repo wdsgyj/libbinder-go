@@ -177,6 +177,7 @@ func (b *Backend) handleIncomingTransaction(ctx context.Context, state *ThreadSt
 	if tx == nil {
 		return fmt.Errorf("kernel: nil transaction")
 	}
+	tracef("client-thread incoming transaction: code=%d flags=%#x cookie=%#x target=%#x pid=%d uid=%d", tx.Code, tx.Flags, tx.CookiePointer(), tx.TargetPointer(), tx.SenderPID, tx.SenderEUID)
 	if tx.DataBuffer != 0 {
 		defer func() {
 			_ = b.Driver.FreeBuffer(tx.BufferPointer())
@@ -207,11 +208,14 @@ func (b *Backend) handleIncomingTransaction(ctx context.Context, state *ThreadSt
 		Flags:      tx.Flags,
 	})
 	if tx.Flags&TFOneWay != 0 {
+		tracef("client-thread incoming oneway handled: code=%d cookie=%#x err=%v", tx.Code, tx.CookiePointer(), err)
 		return nil
 	}
 	if err != nil {
+		tracef("client-thread incoming transaction failed: code=%d cookie=%#x err=%v", tx.Code, tx.CookiePointer(), err)
 		return b.sendStatusReply(statusCodeFromError(err), tx.Flags&TFClearBuf)
 	}
+	tracef("client-thread incoming transaction replying: code=%d cookie=%#x", tx.Code, tx.CookiePointer())
 	return b.sendReply(reply, tx.Flags&TFClearBuf)
 }
 

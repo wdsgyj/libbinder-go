@@ -227,6 +227,20 @@ adb shell '/data/local/tmp/libbinder-go-input tap 100 200'
 - 当前实现不尝试在客户端本地承接 `IShellCallback` / `IResultReceiver` 回调，而是直接发起命令事务；这更贴近 `input` 的实际使用路径，也能避免部分设备上的回调阻塞问题
 - 不建议在非 Android 主机上直接 `go run ./cmd/input ...`
 
+真机回归脚本：
+
+```bash
+./scripts/android-device-input-test.sh
+```
+
+说明：
+
+- 默认会在真机上对比系统 `/system/bin/cmd input` 与本项目 `cmd/input`
+- 默认真实注入用例是 `keyevent 0`，尽量减少对设备当前 UI 的影响
+- 如果要改成更强的真机验证，可以传：
+  - `REAL_INPUT_ARGS="keyevent 3" ./scripts/android-device-input-test.sh`
+  - `REAL_INPUT_ARGS="tap 100 200" ./scripts/android-device-input-test.sh`
+
 ### 6. 构建并运行 `dumpsys`
 
 为 Android arm64 构建：

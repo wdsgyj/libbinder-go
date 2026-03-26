@@ -366,6 +366,33 @@ func TestParcelWriteInterfaceToken(t *testing.T) {
 	}
 }
 
+func TestParcelReadInterfaceTokenAcceptsFrameworkHeaders(t *testing.T) {
+	p := NewParcel()
+	if err := p.WriteUint32((1 << 31) | 0x12); err != nil {
+		t.Fatalf("WriteUint32(strict): %v", err)
+	}
+	if err := p.WriteInt32(2000); err != nil {
+		t.Fatalf("WriteInt32(workSource): %v", err)
+	}
+	if err := p.WriteUint32(packChars('S', 'Y', 'S', 'T')); err != nil {
+		t.Fatalf("WriteUint32(header): %v", err)
+	}
+	if err := p.WriteString("com.android.internal.os.IResultReceiver"); err != nil {
+		t.Fatalf("WriteString(descriptor): %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := p.ReadInterfaceToken()
+	if err != nil {
+		t.Fatalf("ReadInterfaceToken: %v", err)
+	}
+	if got != "com.android.internal.os.IResultReceiver" {
+		t.Fatalf("ReadInterfaceToken = %q, want com.android.internal.os.IResultReceiver", got)
+	}
+}
+
 func TestParcelWriteStrongBinderLocalWireData(t *testing.T) {
 	p := NewParcel()
 

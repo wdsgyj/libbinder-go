@@ -56,6 +56,7 @@ func (b *Backend) RegisterLocalNode(handler api.Handler, serial bool) (*LocalNod
 		Stability: api.HandlerStability(handler),
 	}
 	b.locals.nodes[id] = node
+	tracef("registered local node: id=%#x descriptor=%s serial=%v stability=%d", node.ID, node.Handler.Descriptor(), node.Serial, node.Stability)
 	return node, nil
 }
 
@@ -98,8 +99,10 @@ func (b *Backend) DispatchLocalTransaction(ctx context.Context, nodeID uintptr, 
 func (b *Backend) dispatchLocalTransaction(ctx context.Context, nodeID uintptr, code uint32, data *api.Parcel, flags uint32, meta transactionMetadata) (*api.Parcel, error) {
 	node, ok := b.localNodeByID(nodeID)
 	if !ok {
+		tracef("dispatch local transaction failed: unknown node=%#x code=%d flags=%#x", nodeID, code, flags)
 		return nil, fmt.Errorf("%w: unknown local binder node %d", api.ErrUnsupported, nodeID)
 	}
+	tracef("dispatch local transaction: node=%#x descriptor=%s code=%d flags=%#x pid=%d uid=%d local=%v", nodeID, node.Handler.Descriptor(), code, flags, meta.CallingPID, meta.CallingUID, meta.Local)
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -114,13 +117,15 @@ func (b *Backend) dispatchLocalTransaction(ctx context.Context, nodeID uintptr, 
 	if node.Serial {
 		serial = &node.mu
 	}
-	return api.DispatchLocalHandler(ctx, node.Handler, serial, code, data, publicFlags(meta.Flags), api.TransactionContext{
+	reply, err := api.DispatchLocalHandler(ctx, node.Handler, serial, code, data, publicFlags(meta.Flags), api.TransactionContext{
 		Code:       meta.Code,
 		Flags:      publicFlags(meta.Flags),
 		CallingPID: meta.CallingPID,
 		CallingUID: meta.CallingUID,
 		Local:      meta.Local,
 	})
+	tracef("dispatch local transaction done: node=%#x descriptor=%s code=%d err=%v reply_nil=%v", nodeID, node.Handler.Descriptor(), code, err, reply == nil)
+	return reply, err
 }
 
 func publicFlags(flags uint32) api.Flags {

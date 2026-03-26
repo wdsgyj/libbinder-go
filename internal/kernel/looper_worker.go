@@ -175,6 +175,7 @@ func (w *LooperWorker) handleTransaction(ctx context.Context, tx *BinderTransact
 	if tx == nil {
 		return fmt.Errorf("kernel: nil transaction")
 	}
+	tracef("looper incoming transaction: code=%d flags=%#x cookie=%#x target=%#x pid=%d uid=%d", tx.Code, tx.Flags, tx.CookiePointer(), tx.TargetPointer(), tx.SenderPID, tx.SenderEUID)
 
 	if tx.DataBuffer != 0 {
 		defer func() {
@@ -206,11 +207,14 @@ func (w *LooperWorker) handleTransaction(ctx context.Context, tx *BinderTransact
 		Flags:      tx.Flags,
 	})
 	if tx.Flags&TFOneWay != 0 {
+		tracef("looper incoming oneway handled: code=%d cookie=%#x err=%v", tx.Code, tx.CookiePointer(), err)
 		return nil
 	}
 	if err != nil {
+		tracef("looper incoming transaction failed: code=%d cookie=%#x err=%v", tx.Code, tx.CookiePointer(), err)
 		return w.sendStatusReply(statusCodeFromError(err), tx.Flags&TFClearBuf)
 	}
+	tracef("looper incoming transaction replying: code=%d cookie=%#x", tx.Code, tx.CookiePointer())
 	return w.sendReply(reply, tx.Flags&TFClearBuf)
 }
 

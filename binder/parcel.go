@@ -383,20 +383,11 @@ func (p *Parcel) WriteInterfaceToken(descriptor string) error {
 // ReadInterfaceToken reads and validates the standard Android Binder request
 // header written by WriteInterfaceToken and returns the interface descriptor.
 func (p *Parcel) ReadInterfaceToken() (string, error) {
-	strictMode, err := p.ReadUint32()
-	if err != nil {
+	if _, err := p.ReadUint32(); err != nil {
 		return "", err
 	}
-	if strictMode != 1<<31 {
-		return "", fmt.Errorf("%w: invalid strict mode header %#x", ErrBadParcelable, strictMode)
-	}
-
-	workSource, err := p.ReadInt32()
-	if err != nil {
+	if _, err := p.ReadInt32(); err != nil {
 		return "", err
-	}
-	if workSource != -1 {
-		return "", fmt.Errorf("%w: invalid work source header %d", ErrBadParcelable, workSource)
 	}
 
 	header, err := p.ReadUint32()

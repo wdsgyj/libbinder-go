@@ -125,6 +125,7 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 		fmt.Fprintf(resolved.errorLog, "cmd: Failed to register shell callback: %v\n", err)
 		return 1
 	}
+	tracef("registered shell callback binder: %T", callbackBinder)
 	defer func() { _ = callbackBinder.Close() }()
 
 	resultBinder, err := registrar.RegisterLocalHandler(result)
@@ -132,6 +133,7 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 		fmt.Fprintf(resolved.errorLog, "cmd: Failed to register result receiver: %v\n", err)
 		return 1
 	}
+	tracef("registered result receiver binder: %T", resultBinder)
 	defer func() { _ = resultBinder.Close() }()
 
 	data := api.NewParcel()
@@ -139,6 +141,7 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 		fmt.Fprintf(resolved.errorLog, "cmd: Failed to build shell command request: %v\n", err)
 		return 1
 	}
+	tracef("calling shell command transact: service=%s args=%q", name, argv[serviceIdx+1:])
 	if _, err := service.Transact(ctx, api.ShellCommandTransaction, data, api.FlagNone); err != nil {
 		callback.Deactivate()
 		_ = callback.Close()
@@ -146,14 +149,17 @@ func Run(ctx context.Context, argv []string, opts Options) int {
 		fmt.Fprintf(resolved.outputLog, "cmd: Failure calling service %s: %s (%d)\n", name, transactErrorText(err), printableStatusMagnitude(code))
 		return code
 	}
+	tracef("shell command transact returned: service=%s", name)
 
 	callback.Deactivate()
+	tracef("waiting for result receiver: service=%s", name)
 	resultCode, err := result.Wait(ctx)
 	_ = callback.Close()
 	if err != nil {
 		fmt.Fprintf(resolved.errorLog, "cmd: Failure waiting for command result: %v\n", err)
 		return 1
 	}
+	tracef("result receiver completed: service=%s code=%d", name, resultCode)
 	return int(resultCode)
 }
 

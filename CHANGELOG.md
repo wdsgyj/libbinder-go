@@ -14,6 +14,9 @@
   - `doc/cmd-input-protocol.md`
   - `demo/cmdinputproto`
   - 覆盖 request parcel 结构、help/known/unknown command、`ResultReceiver` 回传与 `ShellCallback` 未使用路径
+- 增加真机 `cmd input` 回归脚本：
+  - `scripts/android-device-input-test.sh`
+  - 默认使用 `keyevent 0` 走真实 input manager 路径，避免明显打扰设备状态
 - 增加 AOSP `frameworks/native/cmds/service` 的 Go 实现：
   - `cmd/service`
   - 覆盖 `list` / `check` / `call`

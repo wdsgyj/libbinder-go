@@ -223,6 +223,56 @@ func TestRunShellCallbackOpenFile(t *testing.T) {
 	}
 }
 
+func TestRunShellCallbackOpenFileAbsolutePath(t *testing.T) {
+	registry := newFakeBinderRegistry()
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "abs-out.txt")
+
+	service := &fakeShellService{
+		registry: registry,
+		onShellCommand: func(ctx context.Context, req shellCommandRequest) error {
+			cb := NewShellCallbackProxy(req.ShellCallback)
+			pfd, err := cb.OpenFile(ctx, targetPath, "u:r:system_server:s0", "w")
+			if err != nil {
+				return err
+			}
+			if pfd.FD() < 0 {
+				return fmt.Errorf("OpenFile returned invalid fd %d", pfd.FD())
+			}
+			if _, err := syscall.Write(pfd.FD(), []byte("absolute path")); err != nil {
+				return err
+			}
+			_ = syscall.Close(pfd.FD())
+			return NewResultReceiverProxy(req.ResultReceiver).Send(ctx, 0)
+		},
+	}
+	sm := fakeServiceManager{
+		checkService: func(ctx context.Context, name string) (api.Binder, error) {
+			return service, nil
+		},
+	}
+
+	code := Run(context.Background(), []string{"service"}, Options{
+		ServiceManager: sm,
+		Output:         io.Discard,
+		Error:          io.Discard,
+		InFD:           int(os.Stdin.Fd()),
+		OutFD:          int(os.Stdout.Fd()),
+		ErrFD:          int(os.Stderr.Fd()),
+		WorkingDir:     filepath.Join(dir, "nested"),
+	})
+	if code != 0 {
+		t.Fatalf("Run code = %d, want 0", code)
+	}
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", targetPath, err)
+	}
+	if got := string(content); got != "absolute path" {
+		t.Fatalf("file content = %q, want absolute path", got)
+	}
+}
+
 func TestRunDeactivatesShellCallbackAfterTransact(t *testing.T) {
 	registry := newFakeBinderRegistry()
 	dir := t.TempDir()

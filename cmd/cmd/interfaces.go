@@ -131,12 +131,14 @@ func (h *ShellCallbackHandler) HandleTransact(ctx context.Context, code uint32, 
 	if err != nil {
 		return nil, err
 	}
+	tracef("shell callback handle transact: path=%q selinux=%q mode=%q", path, seLinuxContext, mode)
 
 	reply := api.NewParcel()
 	if err := protocol.WriteStatus(reply, protocol.Status{}); err != nil {
 		return nil, err
 	}
 	fd := h.OpenFile(path, seLinuxContext, mode)
+	tracef("shell callback open result: path=%q fd=%d", path, fd)
 	if err := writeOptionalParcelFileDescriptor(reply, fd); err != nil {
 		return nil, err
 	}
@@ -144,7 +146,10 @@ func (h *ShellCallbackHandler) HandleTransact(ctx context.Context, code uint32, 
 }
 
 func (h *ShellCallbackHandler) OpenFile(path string, seLinuxContext string, mode string) int {
-	fullPath := filepath.Join(h.workingDir, path)
+	fullPath := path
+	if !filepath.IsAbs(fullPath) {
+		fullPath = filepath.Join(h.workingDir, path)
+	}
 	if !h.active.Load() {
 		fmt.Fprintf(h.errorLog, "Open attempt after active for: %s\n", fullPath)
 		return -int(syscall.EPERM)
@@ -258,6 +263,7 @@ func (h *ResultReceiverHandler) HandleTransact(ctx context.Context, code uint32,
 	if err != nil {
 		return nil, err
 	}
+	tracef("result receiver handle transact: code=%d", resultCode)
 	h.Send(resultCode)
 
 	reply := api.NewParcel()
