@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+### Changed
+
+- `ListenRPCUnix("")` 现在会自动分配当前环境可用的临时监听地址：
+  - Android 使用 abstract unix socket
+  - 其他平台使用临时目录下的 pathname unix socket，并在 `Close()` 时清理
+- `TestRPCUnixTransportHelpers` 现在可在 Android aarch64 模拟器上直接执行，不再因测试目录 unix socket 绑定权限而跳过
+
 ## 0.0.7 - 2026-03-26
 
 本版本是在 `0.0.6` 完成既定重写路线图之后，继续针对 AOSP `libbinder` 关键差距做的增强收口，重点补齐：
@@ -100,7 +107,7 @@
 
 ### Notes
 
-- `TestRPCUnixTransportHelpers` 在 Android 测试环境中因 unix socket 绑定权限限制而跳过。
+- `TestRPCUnixTransportHelpers` 现在通过 Android abstract unix socket 地址运行，不再因测试目录 pathname unix socket 权限限制而跳过。
 - `TestServiceManagerAddServiceAndTransactOnAndroid` 仍受 stock emulator SELinux 限制而跳过。
 
 ## 0.0.6 - 2026-03-26

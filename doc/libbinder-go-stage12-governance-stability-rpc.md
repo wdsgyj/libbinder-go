@@ -120,5 +120,5 @@ Android aarch64 模拟器：
 
 - 宿主机单元测试通过
 - Android 模拟器测试通过
-- `TestRPCUnixTransportHelpers` 在 Android 上因测试目录 unix socket 绑定权限受限而按环境差异跳过
+- `TestRPCUnixTransportHelpers` 现在通过 Android abstract unix socket 地址运行，不再因测试目录 pathname unix socket 权限受限而跳过
 - `TestServiceManagerAddServiceAndTransactOnAndroid` 仍因 stock emulator 的 SELinux 限制跳过

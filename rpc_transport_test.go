@@ -9,8 +9,10 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,18 +41,18 @@ func TestRPCTCPTransportHelpers(t *testing.T) {
 }
 
 func TestRPCUnixTransportHelpers(t *testing.T) {
-	if runtime.GOOS == "android" {
-		t.Skip("android test sandbox does not permit binding unix sockets under the test temp dir")
-	}
-	path := filepath.Join(t.TempDir(), "rpc.sock")
-	listener, err := ListenRPCUnix(path)
+	listener, err := ListenRPCUnix("")
 	if err != nil {
 		t.Fatalf("ListenRPCUnix: %v", err)
 	}
 	defer func() { _ = listener.Close() }()
+	address := listener.Addr().String()
+	if address == "" {
+		t.Fatal("ListenRPCUnix returned empty address")
+	}
 
 	acceptCh := acceptRPCAsync(listener, RPCConfig{})
-	client, err := DialRPCUnix(path, RPCConfig{})
+	client, err := DialRPCUnix(address, RPCConfig{})
 	if err != nil {
 		t.Fatalf("DialRPCUnix: %v", err)
 	}
@@ -61,6 +63,42 @@ func TestRPCUnixTransportHelpers(t *testing.T) {
 	}()
 
 	assertRPCServiceRoundTrip(t, server, client)
+}
+
+func TestListenRPCUnixAutoAddress(t *testing.T) {
+	listener, err := ListenRPCUnix("")
+	if err != nil {
+		t.Fatalf("ListenRPCUnix: %v", err)
+	}
+
+	address := listener.Addr().String()
+	if address == "" {
+		t.Fatal("ListenRPCUnix returned empty address")
+	}
+
+	if runtime.GOOS == "android" {
+		if !strings.HasPrefix(address, "@libbinder-go-rpc-") {
+			t.Fatalf("android unix address = %q, want abstract namespace", address)
+		}
+		if err := listener.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		return
+	}
+
+	if filepath.Base(address) != "rpc.sock" {
+		t.Fatalf("unix address base = %q, want rpc.sock", filepath.Base(address))
+	}
+	if _, err := os.Stat(address); err != nil {
+		t.Fatalf("socket path not created: %v", err)
+	}
+	dir := filepath.Dir(address)
+	if err := listener.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("temporary socket dir still exists after Close: err=%v", err)
+	}
 }
 
 func TestRPCTLSTransportHelpers(t *testing.T) {

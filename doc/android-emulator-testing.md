@@ -99,11 +99,16 @@ ANDROID_KEEP_EMULATOR=1 ./scripts/android-emulator-test.sh
 
 ## 6. 当前 Android 测试覆盖
 
-目前已经落地两类 Android 专用测试：
+目前 Android 模拟器测试已经覆盖两层：
 
 - `internal/kernel/backend_android_test.go`
 - `internal/kernel/driver_transact_android_test.go`
 - `internal/runtime/runtime_android_test.go`
+- root package 下的高层集成测试：
+  - `ServiceManager` 查询
+  - death notification
+  - RPC transport helpers (`tcp` / `unix` / `tls`)
+  - RPC service manager 治理能力
 
 ### 6.1 backend 生命周期
 
@@ -142,15 +147,15 @@ ANDROID_KEEP_EMULATOR=1 ./scripts/android-emulator-test.sh
 
 ## 7. 当前边界
 
-这套脚本已经能验证 Android 运行环境、backend 生命周期、driver 级最小真实 request/reply，以及 runtime 级同步 transact 主链路，但还没有覆盖完整高层 Binder 事务链路。
+这套脚本已经能验证 Android 运行环境、backend 生命周期、driver 级最小真实 request/reply、runtime 级同步 transact 主链路，以及部分高层 Binder / RPC 行为。
 
 当前未覆盖的能力包括：
 
-- 同步事务 / oneway 事务
-- `ServiceManager` 交互
-- death notification
+- stock emulator 上允许真实 `addService` 的完整策略路径
+- 更复杂的多进程 service 发布与回收场景
+- 更完整的生产级权限 / SELinux / service policy 语义
 
-原因很简单：这些功能在当前代码里还没有完全实现，测试脚本不能替代尚未落地的 runtime 逻辑。
+主要原因不是 Go 侧能力缺失，而是 stock emulator 的系统策略和测试环境权限边界。
 
 ---
 

@@ -2,7 +2,14 @@ package libbinder
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"sync"
+	"time"
 )
 
 func DialRPCNetwork(network, address string, cfg RPCConfig) (*RPCConn, error) {
@@ -48,7 +55,24 @@ func ListenRPCTCP(address string) (net.Listener, error) {
 }
 
 func ListenRPCUnix(address string) (net.Listener, error) {
-	return ListenRPC("unix", address)
+	address, cleanup, err := rpcPrepareUnixListenAddress(address)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := net.Listen("unix", address)
+	if err != nil {
+		if cleanup != nil {
+			_ = cleanup()
+		}
+		return nil, err
+	}
+	if cleanup == nil {
+		return listener, nil
+	}
+	return &rpcCleanupListener{
+		Listener: listener,
+		cleanup:  cleanup,
+	}, nil
 }
 
 func ListenRPCTLS(network, address string, tlsConfig *tls.Config) (net.Listener, error) {
@@ -70,4 +94,41 @@ func AcceptRPC(listener net.Listener, cfg RPCConfig) (*RPCConn, error) {
 		return nil, err
 	}
 	return rpcConn, nil
+}
+
+type rpcCleanupListener struct {
+	net.Listener
+	cleanup func() error
+	once    sync.Once
+}
+
+func (l *rpcCleanupListener) Close() error {
+	closeErr := l.Listener.Close()
+	var cleanupErr error
+	l.once.Do(func() {
+		if l.cleanup != nil {
+			cleanupErr = l.cleanup()
+		}
+	})
+	return errors.Join(closeErr, cleanupErr)
+}
+
+func rpcPrepareUnixListenAddress(address string) (string, func() error, error) {
+	if address != "" {
+		return address, nil, nil
+	}
+	if runtime.GOOS == "android" {
+		return rpcAbstractUnixAddress(), nil, nil
+	}
+	dir, err := os.MkdirTemp("", "libbinder-go-rpc-*")
+	if err != nil {
+		return "", nil, err
+	}
+	return filepath.Join(dir, "rpc.sock"), func() error {
+		return os.RemoveAll(dir)
+	}, nil
+}
+
+func rpcAbstractUnixAddress() string {
+	return "@libbinder-go-rpc-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
