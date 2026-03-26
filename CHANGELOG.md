@@ -10,6 +10,11 @@
   - Android 使用 abstract unix socket
   - 其他平台使用临时目录下的 pathname unix socket，并在 `Close()` 时清理
 - `TestRPCUnixTransportHelpers` 现在可在 Android aarch64 模拟器上直接执行，不再因测试目录 unix socket 绑定权限而跳过
+- 增加 AOSP `frameworks/native/cmds/cmd` 的 Go 实现：
+  - `cmds/cmd` 复刻 `-l`、`-w`、shell command transact、`IShellCallback`、`IResultReceiver`
+  - `cmds/cmd/cmd` 增加 standalone 二进制入口
+  - `binder` 常量补充 `DUMP_TRANSACTION` / `SHELL_COMMAND_TRANSACTION`
+  - 新增 host + Android aarch64 模拟器测试覆盖 `cmd` 的主流程与边界行为
 
 ## 0.0.7 - 2026-03-26
 
