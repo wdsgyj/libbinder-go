@@ -278,4 +278,5 @@ ANDROID_AVD_NAME=Medium_Phone ANDROID_SKIP_SDK_INSTALL=1 ANDROID_HEADLESS=1 ANDR
 - [doc/service-tool-analysis.md](./doc/service-tool-analysis.md)
 - [doc/servicemanager-analysis.md](./doc/servicemanager-analysis.md)
 - [doc/dumpsys-analysis.md](./doc/dumpsys-analysis.md)
+- [doc/dumpstate-analysis.md](./doc/dumpstate-analysis.md)
 - [demo/echo/README.md](./demo/echo/README.md)
