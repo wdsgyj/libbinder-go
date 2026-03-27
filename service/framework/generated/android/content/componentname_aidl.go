@@ -68,3 +68,19 @@ func readNullableComponentNameFromParcel(p *binder.Parcel) (*service_framework.C
 	}
 	return &v, nil
 }
+
+func WriteComponentNameToParcel(p *binder.Parcel, v service_framework.ComponentName) error {
+	return writeComponentNameToParcel(p, v)
+}
+
+func ReadComponentNameFromParcel(p *binder.Parcel) (service_framework.ComponentName, error) {
+	return readComponentNameFromParcel(p)
+}
+
+func WriteNullableComponentNameToParcel(p *binder.Parcel, v *service_framework.ComponentName) error {
+	return writeNullableComponentNameToParcel(p, v)
+}
+
+func ReadNullableComponentNameFromParcel(p *binder.Parcel) (*service_framework.ComponentName, error) {
+	return readNullableComponentNameFromParcel(p)
+}

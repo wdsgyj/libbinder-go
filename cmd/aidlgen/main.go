@@ -29,6 +29,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "summary", "output format: summary, ast, model, or go")
 	outDir := fs.String("out", "", "output directory for generated files when -format go")
 	typesPath := fs.String("types", "", "JSON sidecar for custom parcelable type mappings")
+	goImportRoot := fs.String("go-import-root", "", "module import root for generated Go packages")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -147,8 +148,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 			rendered, err := codegen.RenderGo(model, codegen.GoOptions{
-				TypeMappingsPath:  *typesPath,
-				CustomParcelables: customParcelables,
+				TypeMappingsPath:    *typesPath,
+				CustomParcelables:   customParcelables,
+				GeneratedImportRoot: *goImportRoot,
 			})
 			if err != nil {
 				fmt.Fprintf(stderr, "generate go %s: %v\n", path, err)

@@ -552,7 +552,6 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 		base := ast.TypeRef{
 			Name:     ref.Name,
 			TypeArgs: ref.TypeArgs,
-			Nullable: ref.Nullable,
 			Array:    false,
 		}
 		elem := s.lowerType(current, base)
@@ -560,19 +559,26 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 			return nil
 		}
 		if ref.FixedArrayLen != nil {
+			if ref.Nullable {
+				s.diags = append(s.diags, Diagnostic{
+					Message: fmt.Sprintf("nullable fixed-size array %q is not supported", ref.Name),
+				})
+			}
 			return &Type{
 				Kind:     TypeArray,
 				GoExpr:   fmt.Sprintf("[%d]%s", *ref.FixedArrayLen, elem.GoExpr),
 				Elem:     elem,
 				FixedLen: *ref.FixedArrayLen,
 				IsArray:  true,
+				Nullable: ref.Nullable,
 			}
 		}
 		return &Type{
-			Kind:    TypeSlice,
-			GoExpr:  "[]" + elem.GoExpr,
-			Elem:    elem,
-			IsArray: true,
+			Kind:     TypeSlice,
+			GoExpr:   "[]" + elem.GoExpr,
+			Elem:     elem,
+			IsArray:  true,
+			Nullable: ref.Nullable,
 		}
 	}
 
@@ -587,11 +593,12 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 		})
 		s.out.ExternalRefs = appendIfMissing(s.out.ExternalRefs, ref.Name)
 		return &Type{
-			Kind:     TypeExternal,
-			AIDLName: ref.Name,
-			GoExpr:   exportName(lastSegment(ref.Name)),
-			Nullable: ref.Nullable,
-			NamedGo:  exportName(lastSegment(ref.Name)),
+			Kind:        TypeExternal,
+			AIDLName:    ref.Name,
+			GoExpr:      exportName(lastSegment(ref.Name)),
+			Nullable:    ref.Nullable,
+			NamedGo:     exportName(lastSegment(ref.Name)),
+			DeclPackage: packageName(ref.Name),
 		}
 	}
 
@@ -621,11 +628,12 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 					goExpr = "*" + goExpr
 				}
 				return &Type{
-					Kind:     kind,
-					AIDLName: sym.aidlName,
-					GoExpr:   goExpr,
-					Nullable: ref.Nullable,
-					NamedGo:  sym.goName,
+					Kind:        kind,
+					AIDLName:    sym.aidlName,
+					DeclPackage: sym.packageName,
+					GoExpr:      goExpr,
+					Nullable:    ref.Nullable,
+					NamedGo:     sym.goName,
 				}
 			}
 		}
@@ -644,11 +652,12 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 	}
 
 	return &Type{
-		Kind:     kind,
-		AIDLName: sym.aidlName,
-		GoExpr:   goExpr,
-		Nullable: ref.Nullable,
-		NamedGo:  sym.goName,
+		Kind:        kind,
+		AIDLName:    sym.aidlName,
+		DeclPackage: sym.packageName,
+		GoExpr:      goExpr,
+		Nullable:    ref.Nullable,
+		NamedGo:     sym.goName,
 	}
 }
 
@@ -700,6 +709,13 @@ func (s *lowerState) lookupType(current *scope, name string) *namedSymbol {
 		}
 	}
 	return nil
+}
+
+func packageName(name string) string {
+	if idx := strings.LastIndex(name, "."); idx > 0 {
+		return name[:idx]
+	}
+	return ""
 }
 
 func builtinType(name string, nullable bool) *Type {
@@ -849,7 +865,24 @@ func lowerName(name string) string {
 	if r == utf8.RuneError && size == 0 {
 		return "x"
 	}
-	return string(unicode.ToLower(r)) + exp[size:]
+	out := string(unicode.ToLower(r)) + exp[size:]
+	if token.Lookup(out).IsKeyword() || isReservedGeneratedIdentifier(out) {
+		return out + "_"
+	}
+	return out
+}
+
+func isReservedGeneratedIdentifier(name string) bool {
+	switch name {
+	case "binder", "context", "fmt", "errors", "sync":
+		return true
+	case "ctx", "req", "resp", "reply", "parcel", "registrar":
+		return true
+	case "err", "ret":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitIdentifier(name string) []string {

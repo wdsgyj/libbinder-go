@@ -68,3 +68,19 @@ func readNullableProfilerInfoFromParcel(p *binder.Parcel) (*service_framework.Pr
 	}
 	return &v, nil
 }
+
+func WriteProfilerInfoToParcel(p *binder.Parcel, v service_framework.ProfilerInfo) error {
+	return writeProfilerInfoToParcel(p, v)
+}
+
+func ReadProfilerInfoFromParcel(p *binder.Parcel) (service_framework.ProfilerInfo, error) {
+	return readProfilerInfoFromParcel(p)
+}
+
+func WriteNullableProfilerInfoToParcel(p *binder.Parcel, v *service_framework.ProfilerInfo) error {
+	return writeNullableProfilerInfoToParcel(p, v)
+}
+
+func ReadNullableProfilerInfoFromParcel(p *binder.Parcel) (*service_framework.ProfilerInfo, error) {
+	return readNullableProfilerInfoFromParcel(p)
+}

@@ -141,14 +141,15 @@ const (
 )
 
 type Type struct {
-	Kind      TypeKind `json:"kind"`
-	AIDLName  string   `json:"aidl_name,omitempty"`
-	GoExpr    string   `json:"go_expr"`
-	Nullable  bool     `json:"nullable,omitempty"`
-	FixedLen  int      `json:"fixed_len,omitempty"`
-	Elem      *Type    `json:"elem,omitempty"`
-	NamedGo   string   `json:"named_go,omitempty"`
-	IsList    bool     `json:"is_list,omitempty"`
-	IsArray   bool     `json:"is_array,omitempty"`
-	IsBuiltin bool     `json:"is_builtin,omitempty"`
+	Kind        TypeKind `json:"kind"`
+	AIDLName    string   `json:"aidl_name,omitempty"`
+	DeclPackage string   `json:"decl_package,omitempty"`
+	GoExpr      string   `json:"go_expr"`
+	Nullable    bool     `json:"nullable,omitempty"`
+	FixedLen    int      `json:"fixed_len,omitempty"`
+	Elem        *Type    `json:"elem,omitempty"`
+	NamedGo     string   `json:"named_go,omitempty"`
+	IsList      bool     `json:"is_list,omitempty"`
+	IsArray     bool     `json:"is_array,omitempty"`
+	IsBuiltin   bool     `json:"is_builtin,omitempty"`
 }

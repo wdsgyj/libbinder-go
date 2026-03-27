@@ -244,7 +244,7 @@ func (p *Parser) parseConstDecl(annotations []ast.Annotation) (*ast.ConstDecl, e
 
 func (p *Parser) parseParcelableDecl(annotations []ast.Annotation) (*ast.ParcelableDecl, error) {
 	p.next()
-	name, err := p.parseName()
+	name, err := p.parseQualifiedName()
 	if err != nil {
 		return nil, err
 	}

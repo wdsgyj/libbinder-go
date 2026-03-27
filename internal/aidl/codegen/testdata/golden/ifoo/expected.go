@@ -90,6 +90,14 @@ func readIFooFromParcel(p *binder.Parcel) (IFoo, error) {
 	return NewIFooClient(b), nil
 }
 
+func WriteIFooToParcel(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v IFoo) error {
+	return writeIFooToParcel(p, registrar, v)
+}
+
+func ReadIFooFromParcel(p *binder.Parcel) (IFoo, error) {
+	return readIFooFromParcel(p)
+}
+
 type iFooHandler struct {
 	impl      IFoo
 	registrar binder.LocalHandlerRegistrar

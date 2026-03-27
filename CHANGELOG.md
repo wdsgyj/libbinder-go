@@ -98,6 +98,87 @@
   - `--clients activity`
   - `-T 2000 activity activities`
 
+## 0.0.8 - 2026-03-27
+
+本版本聚焦 AIDL 代码生成工具的“完整 framework 大接口可生成”基础门槛，主要完成：
+
+- `IActivityManager` / `IActivityTaskManager` 的 framework 依赖补齐
+- AIDL Go codegen 对真实大接口场景的保守兼容修复
+- 生成后 Go 编译验证链路打通
+
+### Added
+
+- 增加 `service/framework` 的 framework parcelable codec 与占位实现：
+  - 已实现可 round-trip 的 `ActivityManager.MemoryInfo`
+  - `ActivityManager.PendingIntentInfo`
+  - `ActivityManager.ProcessErrorStateInfo`
+  - `ActivityManager.RunningServiceInfo`
+  - `ActivityManager.RunningAppProcessInfo`
+  - 增加复杂 framework parcelable 的占位 codec，统一返回 `binder.ErrUnsupported`
+- 增加 `service/framework/placeholders.go` 与对应单测：
+  - 覆盖 `ApplicationInfo`
+  - `Configuration`
+  - `RemoteCallback`
+  - `Bitmap`
+  - `TaskSnapshot`
+  - `AssistStructure`
+  - `AssistContent`
+  - `ParceledListSlice`
+  - 以及 `IActivityManager` / `IActivityTaskManager` 依赖的其余复杂 framework parcelable
+- 增加 `service/framework/aidl/**` 最小 stub 集：
+  - 补齐 `android.app.*`
+  - `android.content.pm.*`
+  - `android.content.res.*`
+  - `android.graphics.*`
+  - `android.os.*`
+  - `android.view.*`
+  - `android.window.*`
+  - `com.android.internal.*`
+  - 使 framework 依赖树可被 `aidlgen` 完整解析
+- 增加 AIDL/codegen 回归测试：
+  - `@nullable int[]` 容器语义回归
+  - Go 关键字参数名回归
+  - `binder` / `err` 等生成器保留名回归
+  - `com.android.internal.*` AIDL 包路径回归
+
+### Changed
+
+- `internal/aidl/gomodel` 现在正确处理 `@nullable int[]`：
+  - nullable 只作用于容器，不再错误地下推为元素 nullable
+- AIDL Go codegen 现在会规整更多保留标识符：
+  - 不仅规整 Go 关键字
+  - 也规整 `binder`
+  - `err`
+  - `req`
+  - `resp`
+  - `reply`
+  - `parcel`
+  - `registrar`
+  - 避免生成代码遮蔽导入包或局部模板变量
+- AIDL Go codegen 现在将 AIDL 包路径中的 `internal` 目录段映射为 Go 生成路径 `internal_`：
+  - 修复 `com.android.internal.*` 生成代码被 Go `internal` 可见性规则拦截的问题
+- handler/client 模板修复：
+  - 仅返回 `error` 的 handler case 现在使用普通赋值，不再生成错误的 `err :=`
+  - 大接口 client 代理在参数名为 `binder` / `err` 时也可正常编译
+- `service/framework/generated` 已按新路径规则重生成：
+  - `com/android/internal_/*`
+
+### Testing
+
+- `go test ./internal/aidl/gomodel ./internal/aidl/codegen ./cmd/aidlgen`
+- `go test ./service/framework/...`
+- `go test ./...`
+
+### Verification
+
+- 生成验证：
+  - `go run ./cmd/aidlgen -format go -go-import-root github.com/wdsgyj/libbinder-go/service/framework/generated -types ./service/framework/aidl/aidl.types.json -out <tmpdir> $(find service/framework/aidl -type f -name '*.aidl' | sort) /tmp/libbinder-go-aidl/IActivityManager.aidl /tmp/libbinder-go-aidl/IActivityTaskManager.aidl`
+- 编译验证：
+  - 在临时模块中对上述生成结果执行 `go test ./...`
+  - `android.app.IActivityManager`
+  - `android.app.IActivityTaskManager`
+  - 及其跨包依赖生成结果均可通过 Go 编译
+
 ## 0.0.7 - 2026-03-26
 
 本版本是在 `0.0.6` 完成既定重写路线图之后，继续针对 AOSP `libbinder` 关键差距做的增强收口，重点补齐：

@@ -91,6 +91,14 @@ func readIIntentSenderFromParcel(p *binder.Parcel) (IIntentSender, error) {
 	return NewIIntentSenderClient(b), nil
 }
 
+func WriteIIntentSenderToParcel(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v IIntentSender) error {
+	return writeIIntentSenderToParcel(p, registrar, v)
+}
+
+func ReadIIntentSenderFromParcel(p *binder.Parcel) (IIntentSender, error) {
+	return readIIntentSenderFromParcel(p)
+}
+
 func (c *iIntentSenderClient) Send(ctx context.Context, code int32, intent *service_framework.Intent, resolvedType *string, whitelistToken binder.Binder, finishedReceiver IIntentReceiver, requiredPermission *string, options *service_framework.Bundle) error {
 	if ctx == nil {
 		ctx = context.Background()

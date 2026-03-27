@@ -152,6 +152,74 @@ parcelable Payload {
 	}
 }
 
+func TestLowerNullablePrimitiveArrayKeepsPrimitiveElementType(t *testing.T) {
+	src := `
+package demo;
+
+interface IService {
+  @nullable int[] GetIds();
+}
+`
+
+	file, err := parser.Parse("array.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "array.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	if len(model.Interfaces) != 1 || len(model.Interfaces[0].Methods) != 1 {
+		t.Fatalf("Interfaces = %#v, want single interface with single method", model.Interfaces)
+	}
+	ret := model.Interfaces[0].Methods[0].Return.Type
+	if ret.Kind != TypeSlice || ret.GoExpr != "[]int32" {
+		t.Fatalf("Return = %#v, want []int32 slice", ret)
+	}
+	if ret.Elem == nil || ret.Elem.Kind != TypeInt32 || ret.Elem.GoExpr != "int32" {
+		t.Fatalf("Return.Elem = %#v, want int32 element", ret.Elem)
+	}
+	if !ret.Nullable {
+		t.Fatalf("Return.Nullable = false, want true")
+	}
+}
+
+func TestLowerMethodArgsAvoidReservedGoIdentifiers(t *testing.T) {
+	src := `
+package demo;
+
+interface IService {
+  void Ping(in int map, in String type, in String binder, in int err);
+}
+`
+
+	file, err := parser.Parse("keywords.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "keywords.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	method := model.Interfaces[0].Methods[0]
+	if got := method.Inputs[0].GoName; got != "map_" {
+		t.Fatalf("first arg GoName = %q, want map_", got)
+	}
+	if got := method.Inputs[1].GoName; got != "type_" {
+		t.Fatalf("second arg GoName = %q, want type_", got)
+	}
+	if got := method.Inputs[2].GoName; got != "binder_" {
+		t.Fatalf("third arg GoName = %q, want binder_", got)
+	}
+	if got := method.Inputs[3].GoName; got != "err_" {
+		t.Fatalf("fourth arg GoName = %q, want err_", got)
+	}
+}
+
 func TestLowerCustomParcelableWithMappings(t *testing.T) {
 	src := `
 package demo;
@@ -236,6 +304,43 @@ interface IEcho {
 	}
 	if iface.Version != 3 || iface.Hash != "abcdef" {
 		t.Fatalf("stable metadata = (%d, %q), want (3, abcdef)", iface.Version, iface.Hash)
+	}
+}
+
+func TestLowerQualifiedParcelableForwardDeclaration(t *testing.T) {
+	src := `
+package android.app;
+
+parcelable ActivityManager.MemoryInfo;
+
+interface IService {
+  ActivityManager.MemoryInfo Get();
+}
+`
+
+	file, err := parser.Parse("activity_manager.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "activity_manager.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+	if len(model.Parcelables) != 1 {
+		t.Fatalf("len(Parcelables) = %d, want 1", len(model.Parcelables))
+	}
+	if got := model.Parcelables[0].AIDLName; got != "android.app.ActivityManager.MemoryInfo" {
+		t.Fatalf("Parcelable AIDLName = %q, want android.app.ActivityManager.MemoryInfo", got)
+	}
+	if got := model.Parcelables[0].GoName; got != "ActivityManagerMemoryInfo" {
+		t.Fatalf("Parcelable GoName = %q, want ActivityManagerMemoryInfo", got)
+	}
+	if len(model.Interfaces) != 1 || len(model.Interfaces[0].Methods) != 1 {
+		t.Fatalf("Interfaces = %#v, want single interface with single method", model.Interfaces)
+	}
+	if got := model.Interfaces[0].Methods[0].Return.Type.GoExpr; got != "ActivityManagerMemoryInfo" {
+		t.Fatalf("Return.GoExpr = %q, want ActivityManagerMemoryInfo", got)
 	}
 }
 

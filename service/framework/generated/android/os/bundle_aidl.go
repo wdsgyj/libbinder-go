@@ -68,3 +68,19 @@ func readNullableBundleFromParcel(p *binder.Parcel) (*service_framework.Bundle, 
 	}
 	return &v, nil
 }
+
+func WriteBundleToParcel(p *binder.Parcel, v service_framework.Bundle) error {
+	return writeBundleToParcel(p, v)
+}
+
+func ReadBundleFromParcel(p *binder.Parcel) (service_framework.Bundle, error) {
+	return readBundleFromParcel(p)
+}
+
+func WriteNullableBundleToParcel(p *binder.Parcel, v *service_framework.Bundle) error {
+	return writeNullableBundleToParcel(p, v)
+}
+
+func ReadNullableBundleFromParcel(p *binder.Parcel) (*service_framework.Bundle, error) {
+	return readNullableBundleFromParcel(p)
+}

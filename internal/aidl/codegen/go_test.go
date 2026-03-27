@@ -266,6 +266,37 @@ func TestGeneratedClientServerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRenderGoSanitizesKeywordArgumentNames(t *testing.T) {
+	src := `
+package demo;
+
+interface IService {
+  void Ping(in int map, in String type, in IBinder binder, in int err);
+}
+`
+
+	file, err := parser.Parse("keywords.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	model, diags := gomodel.Lower(file, gomodel.LowerOptions{SourcePath: "keywords.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v", diags)
+	}
+
+	outputs, err := RenderGo(model, GoOptions{})
+	if err != nil {
+		t.Fatalf("RenderGo: %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("len(outputs) = %d, want 1", len(outputs))
+	}
+	code := string(outputs[0].Content)
+	if !strings.Contains(code, "Ping(ctx context.Context, map_ int32, type_ string, binder_ binder.Binder, err_ int32)") {
+		t.Fatalf("generated signature missing sanitized names:\n%s", code)
+	}
+}
+
 func TestOutputPathUsesPackageLayout(t *testing.T) {
 	model := &gomodel.File{
 		AIDLPackage: "android.test.demo",
@@ -273,6 +304,16 @@ func TestOutputPathUsesPackageLayout(t *testing.T) {
 	}
 	if got := outputPath(model); got != filepath.Join("android", "test", "demo", "iecho_aidl.go") {
 		t.Fatalf("outputPath = %q, want android/test/demo/iecho_aidl.go", got)
+	}
+}
+
+func TestOutputPathEscapesInternalSegment(t *testing.T) {
+	model := &gomodel.File{
+		AIDLPackage: "com.android.internal.os",
+		SourcePath:  "IResultReceiver.aidl",
+	}
+	if got := outputPath(model); got != filepath.Join("com", "android", "internal_", "os", "iresultreceiver_aidl.go") {
+		t.Fatalf("outputPath = %q, want com/android/internal_/os/iresultreceiver_aidl.go", got)
 	}
 }
 
@@ -1437,6 +1478,354 @@ parcelable Holder {
 	}
 	if !strings.Contains(content, "v.Kind = HolderKindTwo") {
 		t.Fatalf("generated code missing default value assignment:\n%s", content)
+	}
+}
+
+func TestRenderGoSupportsCrossPackageGeneratedDependencies(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("requires host go toolchain")
+	}
+
+	alphaSrc := `
+package alpha;
+
+parcelable Foo {
+  int count;
+}
+`
+	gammaSrc := `
+package gamma;
+
+import alpha.Foo;
+
+interface ICallback {
+  Foo Done(in Foo value);
+}
+`
+	betaSrc := `
+package beta;
+
+import alpha.Foo;
+import gamma.ICallback;
+
+interface IBar {
+  Foo Echo(in Foo value, in ICallback cb);
+}
+`
+
+	alphaFile, err := parser.Parse("Foo.aidl", alphaSrc)
+	if err != nil {
+		t.Fatalf("Parse(Foo.aidl): %v", err)
+	}
+	gammaFile, err := parser.Parse("ICallback.aidl", gammaSrc)
+	if err != nil {
+		t.Fatalf("Parse(ICallback.aidl): %v", err)
+	}
+	betaFile, err := parser.Parse("IBar.aidl", betaSrc)
+	if err != nil {
+		t.Fatalf("Parse(IBar.aidl): %v", err)
+	}
+
+	alphaModel, diags := gomodel.Lower(alphaFile, gomodel.LowerOptions{SourcePath: "Foo.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower alpha diagnostics = %#v", diags)
+	}
+	gammaModel, diags := gomodel.Lower(gammaFile, gomodel.LowerOptions{
+		SourcePath:      "ICallback.aidl",
+		DependencyFiles: []*ast.File{alphaFile},
+	})
+	if len(diags) != 0 {
+		t.Fatalf("Lower gamma diagnostics = %#v", diags)
+	}
+	betaModel, diags := gomodel.Lower(betaFile, gomodel.LowerOptions{
+		SourcePath:      "IBar.aidl",
+		DependencyFiles: []*ast.File{alphaFile, gammaFile},
+	})
+	if len(diags) != 0 {
+		t.Fatalf("Lower beta diagnostics = %#v", diags)
+	}
+
+	const importRoot = "example.com/generated"
+	var outputs []OutputFile
+	for _, model := range []*gomodel.File{alphaModel, gammaModel, betaModel} {
+		rendered, err := RenderGo(model, GoOptions{GeneratedImportRoot: importRoot})
+		if err != nil {
+			t.Fatalf("RenderGo(%s): %v", model.SourcePath, err)
+		}
+		outputs = append(outputs, rendered...)
+	}
+
+	tmp := t.TempDir()
+	repoRoot := testRepoRoot(t)
+	goMod := `module example.com/generated
+
+go 1.22
+
+require github.com/wdsgyj/libbinder-go v0.0.0
+
+replace github.com/wdsgyj/libbinder-go => ` + repoRoot + `
+`
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod): %v", err)
+	}
+	for _, output := range outputs {
+		outPath := filepath.Join(tmp, output.Path)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", outPath, err)
+		}
+		if err := os.WriteFile(outPath, output.Content, 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", outPath, err)
+		}
+	}
+
+	testSrc := `package beta
+
+import (
+	"context"
+	"testing"
+
+	alpha "example.com/generated/alpha"
+	gamma "example.com/generated/gamma"
+	binder "github.com/wdsgyj/libbinder-go/binder"
+)
+
+type fakeRegistrar struct {
+	next    uint32
+	binders map[uint32]binder.Binder
+}
+
+func newFakeRegistrar() *fakeRegistrar {
+	return &fakeRegistrar{
+		next:    100,
+		binders: map[uint32]binder.Binder{},
+	}
+}
+
+func (r *fakeRegistrar) RegisterLocalHandler(handler binder.Handler) (binder.Binder, error) {
+	r.next++
+	b := fakeRegisteredBinder{handle: r.next, handler: handler, registrar: r}
+	r.binders[b.handle] = b
+	return b, nil
+}
+
+func (r *fakeRegistrar) resolve(handle uint32) binder.Binder {
+	return r.binders[handle]
+}
+
+type fakeRegisteredBinder struct {
+	handle    uint32
+	handler   binder.Handler
+	registrar *fakeRegistrar
+}
+
+func (b fakeRegisteredBinder) AsBinder() binder.Binder { return b }
+
+func (b fakeRegisteredBinder) Descriptor(ctx context.Context) (string, error) {
+	return b.handler.Descriptor(), nil
+}
+
+func (b fakeRegisteredBinder) Transact(ctx context.Context, code uint32, data *binder.Parcel, flags binder.Flags) (*binder.Parcel, error) {
+	if err := data.SetPosition(0); err != nil {
+		return nil, err
+	}
+	data.SetBinderResolvers(b.registrar.resolve, nil)
+	reply, err := b.handler.HandleTransact(ctx, code, data)
+	if err != nil {
+		return nil, err
+	}
+	if reply != nil {
+		reply.SetBinderResolvers(b.registrar.resolve, nil)
+		if err := reply.SetPosition(0); err != nil {
+			return nil, err
+		}
+	}
+	return reply, nil
+}
+
+func (b fakeRegisteredBinder) WatchDeath(ctx context.Context) (binder.Subscription, error) {
+	return nil, binder.ErrUnsupported
+}
+
+func (b fakeRegisteredBinder) Close() error { return nil }
+
+func (b fakeRegisteredBinder) WriteBinderToParcel(p *binder.Parcel) error {
+	return p.WriteStrongBinderHandle(b.handle)
+}
+
+type fakeEndpoint struct {
+	handler   binder.Handler
+	registrar *fakeRegistrar
+}
+
+func (b fakeEndpoint) Descriptor(ctx context.Context) (string, error) {
+	return b.handler.Descriptor(), nil
+}
+
+func (b fakeEndpoint) Transact(ctx context.Context, code uint32, data *binder.Parcel, flags binder.Flags) (*binder.Parcel, error) {
+	if err := data.SetPosition(0); err != nil {
+		return nil, err
+	}
+	data.SetBinderResolvers(b.registrar.resolve, nil)
+	reply, err := b.handler.HandleTransact(ctx, code, data)
+	if err != nil {
+		return nil, err
+	}
+	if reply != nil {
+		reply.SetBinderResolvers(b.registrar.resolve, nil)
+		if err := reply.SetPosition(0); err != nil {
+			return nil, err
+		}
+	}
+	return reply, nil
+}
+
+func (b fakeEndpoint) WatchDeath(ctx context.Context) (binder.Subscription, error) {
+	return nil, binder.ErrUnsupported
+}
+
+func (b fakeEndpoint) Close() error { return nil }
+
+func (b fakeEndpoint) RegisterLocalHandler(handler binder.Handler) (binder.Binder, error) {
+	return b.registrar.RegisterLocalHandler(handler)
+}
+
+type callbackImpl struct {
+	seen []int32
+}
+
+func (c *callbackImpl) Done(ctx context.Context, value alpha.Foo) (alpha.Foo, error) {
+	c.seen = append(c.seen, value.Count)
+	return alpha.Foo{Count: value.Count + 1}, nil
+}
+
+type serviceImpl struct{}
+
+func (serviceImpl) Echo(ctx context.Context, value alpha.Foo, cb gamma.ICallback) (alpha.Foo, error) {
+	reply, err := cb.Done(ctx, alpha.Foo{Count: value.Count + 10})
+	if err != nil {
+		return alpha.Foo{}, err
+	}
+	return alpha.Foo{Count: reply.Count + 100}, nil
+}
+
+func TestCrossPackageGeneratedRoundTrip(t *testing.T) {
+	registrar := newFakeRegistrar()
+	client := NewIBarClient(fakeEndpoint{
+		handler:   NewIBarHandlerWithRegistrar(registrar, serviceImpl{}),
+		registrar: registrar,
+	})
+
+	cb := &callbackImpl{}
+	got, err := client.Echo(context.Background(), alpha.Foo{Count: 7}, cb)
+	if err != nil {
+		t.Fatalf("Echo: %v", err)
+	}
+	if len(cb.seen) != 1 || cb.seen[0] != 17 {
+		t.Fatalf("callback seen = %#v, want [17]", cb.seen)
+	}
+	if got.Count != 118 {
+		t.Fatalf("got.Count = %d, want 118", got.Count)
+	}
+}
+`
+	testPath := filepath.Join(tmp, "beta", "generated_crosspkg_test.go")
+	if err := os.WriteFile(testPath, []byte(testSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(generated_crosspkg_test.go): %v", err)
+	}
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test ./... failed: %v\n%s", err, out)
+	}
+}
+
+func TestRenderGoSupportsInternalNamedAIDLPackages(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("requires host go toolchain")
+	}
+
+	internalSrc := `
+package com.android.internal.app;
+
+interface IVoiceInteractor {
+  void Ping(in String msg);
+}
+`
+	appSrc := `
+package android.app;
+
+import com.android.internal.app.IVoiceInteractor;
+
+interface IService {
+  void Call(in IVoiceInteractor interactor);
+}
+`
+
+	internalFile, err := parser.Parse("IVoiceInteractor.aidl", internalSrc)
+	if err != nil {
+		t.Fatalf("Parse(IVoiceInteractor.aidl): %v", err)
+	}
+	appFile, err := parser.Parse("IService.aidl", appSrc)
+	if err != nil {
+		t.Fatalf("Parse(IService.aidl): %v", err)
+	}
+
+	internalModel, diags := gomodel.Lower(internalFile, gomodel.LowerOptions{SourcePath: "IVoiceInteractor.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower internal diagnostics = %#v", diags)
+	}
+	appModel, diags := gomodel.Lower(appFile, gomodel.LowerOptions{
+		SourcePath:      "IService.aidl",
+		DependencyFiles: []*ast.File{internalFile},
+	})
+	if len(diags) != 0 {
+		t.Fatalf("Lower app diagnostics = %#v", diags)
+	}
+
+	const importRoot = "example.com/generated"
+	var outputs []OutputFile
+	for _, model := range []*gomodel.File{internalModel, appModel} {
+		rendered, err := RenderGo(model, GoOptions{GeneratedImportRoot: importRoot})
+		if err != nil {
+			t.Fatalf("RenderGo(%s): %v", model.SourcePath, err)
+		}
+		outputs = append(outputs, rendered...)
+	}
+
+	tmp := t.TempDir()
+	repoRoot := testRepoRoot(t)
+	goMod := `module example.com/generated
+
+go 1.22
+
+require github.com/wdsgyj/libbinder-go v0.0.0
+
+replace github.com/wdsgyj/libbinder-go => ` + repoRoot + `
+`
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod): %v", err)
+	}
+	for _, output := range outputs {
+		outPath := filepath.Join(tmp, output.Path)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", outPath, err)
+		}
+		if err := os.WriteFile(outPath, output.Content, 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", outPath, err)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "com", "android", "internal_", "app", "ivoiceinteractor_aidl.go")); err != nil {
+		t.Fatalf("generated internal_ path missing: %v", err)
+	}
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test ./... failed: %v\n%s", err, out)
 	}
 }
 

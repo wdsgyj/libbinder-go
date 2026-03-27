@@ -91,6 +91,14 @@ func readIIntentReceiverFromParcel(p *binder.Parcel) (IIntentReceiver, error) {
 	return NewIIntentReceiverClient(b), nil
 }
 
+func WriteIIntentReceiverToParcel(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v IIntentReceiver) error {
+	return writeIIntentReceiverToParcel(p, registrar, v)
+}
+
+func ReadIIntentReceiverFromParcel(p *binder.Parcel) (IIntentReceiver, error) {
+	return readIIntentReceiverFromParcel(p)
+}
+
 func (c *iIntentReceiverClient) PerformReceive(ctx context.Context, intent *service_framework.Intent, resultCode int32, data *string, extras *service_framework.Bundle, ordered bool, sticky bool, sendingUser int32) error {
 	if ctx == nil {
 		ctx = context.Background()

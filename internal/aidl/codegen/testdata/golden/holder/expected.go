@@ -54,6 +54,14 @@ func readHolderKindFromParcel(p *binder.Parcel) (HolderKind, error) {
 	return HolderKind(v), nil
 }
 
+func WriteHolderKindToParcel(p *binder.Parcel, v HolderKind) error {
+	return writeHolderKindToParcel(p, v)
+}
+
+func ReadHolderKindFromParcel(p *binder.Parcel) (HolderKind, error) {
+	return readHolderKindFromParcel(p)
+}
+
 const (
 	HolderMask int32 = (1 << 3)
 )
@@ -108,4 +116,28 @@ func readNullableHolderFromParcel(p *binder.Parcel) (*Holder, error) {
 		return nil, err
 	}
 	return &v, nil
+}
+
+func WriteHolderToParcel(p *binder.Parcel, v Holder) error {
+	return writeHolderToParcel(p, v)
+}
+
+func WriteHolderToParcelWithRegistrar(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v Holder) error {
+	return writeHolderToParcel(p, v)
+}
+
+func ReadHolderFromParcel(p *binder.Parcel) (Holder, error) {
+	return readHolderFromParcel(p)
+}
+
+func WriteNullableHolderToParcel(p *binder.Parcel, v *Holder) error {
+	return writeNullableHolderToParcel(p, v)
+}
+
+func WriteNullableHolderToParcelWithRegistrar(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v *Holder) error {
+	return writeNullableHolderToParcel(p, v)
+}
+
+func ReadNullableHolderFromParcel(p *binder.Parcel) (*Holder, error) {
+	return readNullableHolderFromParcel(p)
 }

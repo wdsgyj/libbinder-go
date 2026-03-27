@@ -68,3 +68,19 @@ func readNullableWaitResultFromParcel(p *binder.Parcel) (*service_framework.Wait
 	}
 	return &v, nil
 }
+
+func WriteWaitResultToParcel(p *binder.Parcel, v service_framework.WaitResult) error {
+	return writeWaitResultToParcel(p, v)
+}
+
+func ReadWaitResultFromParcel(p *binder.Parcel) (service_framework.WaitResult, error) {
+	return readWaitResultFromParcel(p)
+}
+
+func WriteNullableWaitResultToParcel(p *binder.Parcel, v *service_framework.WaitResult) error {
+	return writeNullableWaitResultToParcel(p, v)
+}
+
+func ReadNullableWaitResultFromParcel(p *binder.Parcel) (*service_framework.WaitResult, error) {
+	return readNullableWaitResultFromParcel(p)
+}

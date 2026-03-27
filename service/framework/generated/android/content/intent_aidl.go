@@ -68,3 +68,19 @@ func readNullableIntentFromParcel(p *binder.Parcel) (*service_framework.Intent, 
 	}
 	return &v, nil
 }
+
+func WriteIntentToParcel(p *binder.Parcel, v service_framework.Intent) error {
+	return writeIntentToParcel(p, v)
+}
+
+func ReadIntentFromParcel(p *binder.Parcel) (service_framework.Intent, error) {
+	return readIntentFromParcel(p)
+}
+
+func WriteNullableIntentToParcel(p *binder.Parcel, v *service_framework.Intent) error {
+	return writeNullableIntentToParcel(p, v)
+}
+
+func ReadNullableIntentFromParcel(p *binder.Parcel) (*service_framework.Intent, error) {
+	return readNullableIntentFromParcel(p)
+}

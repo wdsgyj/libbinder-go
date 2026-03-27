@@ -1,10 +1,33 @@
 package framework
 
 import (
+	"context"
 	"testing"
 
 	api "github.com/wdsgyj/libbinder-go/binder"
 )
+
+type testBinder struct {
+	id string
+}
+
+func (b testBinder) Descriptor(ctx context.Context) (string, error) { return b.id, nil }
+func (b testBinder) Transact(ctx context.Context, code uint32, data *api.Parcel, flags api.Flags) (*api.Parcel, error) {
+	return nil, api.ErrUnsupported
+}
+func (b testBinder) WatchDeath(ctx context.Context) (api.Subscription, error) {
+	return nil, api.ErrUnsupported
+}
+func (b testBinder) Close() error { return nil }
+
+type testMarshaledBinder struct {
+	testBinder
+	handle uint32
+}
+
+func (b testMarshaledBinder) WriteBinderToParcel(p *api.Parcel) error {
+	return p.WriteStrongBinderHandle(b.handle)
+}
 
 func TestComponentNameRoundTrip(t *testing.T) {
 	p := api.NewParcel()
@@ -18,6 +41,149 @@ func TestComponentNameRoundTrip(t *testing.T) {
 	got, err := ReadComponentNameFromParcel(p)
 	if err != nil {
 		t.Fatalf("ReadComponentNameFromParcel: %v", err)
+	}
+	if got != value {
+		t.Fatalf("got = %#v, want %#v", got, value)
+	}
+}
+
+func TestPointRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := Point{X: 7, Y: -3}
+	if err := WritePointToParcel(p, value); err != nil {
+		t.Fatalf("WritePointToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	got, err := ReadPointFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadPointFromParcel: %v", err)
+	}
+	if got != value {
+		t.Fatalf("got = %#v, want %#v", got, value)
+	}
+}
+
+func TestLocusIdRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := LocusId{ID: "chat-thread-42"}
+	if err := WriteLocusIdToParcel(p, value); err != nil {
+		t.Fatalf("WriteLocusIdToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	got, err := ReadLocusIdFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadLocusIdFromParcel: %v", err)
+	}
+	if got != value {
+		t.Fatalf("got = %#v, want %#v", got, value)
+	}
+}
+
+func TestIntentSenderRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := IntentSender{
+		Target: testMarshaledBinder{
+			testBinder: testBinder{id: "intent-sender"},
+			handle:     99,
+		},
+	}
+	if err := WriteIntentSenderToParcel(p, value); err != nil {
+		t.Fatalf("WriteIntentSenderToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	var resolved api.Binder
+	p.SetBinderResolvers(func(handle uint32) api.Binder {
+		if handle != 99 {
+			t.Fatalf("resolver handle = %d, want 99", handle)
+		}
+		resolved = value.Target
+		return resolved
+	}, nil)
+	got, err := ReadIntentSenderFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadIntentSenderFromParcel: %v", err)
+	}
+	if got.Target != resolved {
+		t.Fatalf("got.Target = %#v, want %#v", got.Target, resolved)
+	}
+}
+
+func TestPendingIntentRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := PendingIntent{
+		Target: testMarshaledBinder{
+			testBinder: testBinder{id: "pending-intent"},
+			handle:     101,
+		},
+	}
+	if err := WritePendingIntentToParcel(p, value); err != nil {
+		t.Fatalf("WritePendingIntentToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	var resolved api.Binder
+	p.SetBinderResolvers(func(handle uint32) api.Binder {
+		if handle != 101 {
+			t.Fatalf("resolver handle = %d, want 101", handle)
+		}
+		resolved = value.Target
+		return resolved
+	}, nil)
+	got, err := ReadPendingIntentFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadPendingIntentFromParcel: %v", err)
+	}
+	if got.Target != resolved {
+		t.Fatalf("got.Target = %#v, want %#v", got.Target, resolved)
+	}
+}
+
+func TestPictureInPictureUiStateRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := PictureInPictureUiState{
+		IsStashed:            true,
+		IsTransitioningToPip: true,
+	}
+	if err := WritePictureInPictureUiStateToParcel(p, value); err != nil {
+		t.Fatalf("WritePictureInPictureUiStateToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	got, err := ReadPictureInPictureUiStateFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadPictureInPictureUiStateFromParcel: %v", err)
+	}
+	if got != value {
+		t.Fatalf("got = %#v, want %#v", got, value)
+	}
+}
+
+func TestConfigurationInfoRoundTrip(t *testing.T) {
+	p := api.NewParcel()
+	value := ConfigurationInfo{
+		ReqTouchScreen:   1,
+		ReqKeyboardType:  2,
+		ReqNavigation:    3,
+		ReqInputFeatures: 4,
+		ReqGlEsVersion:   0x00030002,
+	}
+	if err := WriteConfigurationInfoToParcel(p, value); err != nil {
+		t.Fatalf("WriteConfigurationInfoToParcel: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+	got, err := ReadConfigurationInfoFromParcel(p)
+	if err != nil {
+		t.Fatalf("ReadConfigurationInfoFromParcel: %v", err)
 	}
 	if got != value {
 		t.Fatalf("got = %#v, want %#v", got, value)
@@ -77,6 +243,43 @@ func TestBundleValueRoundTrip(t *testing.T) {
 		}
 		if got == nil || !got.Native || string(got.RawData) != string([]byte{1, 2, 3, 4}) {
 			t.Fatalf("got = %#v, want native raw bundle", got)
+		}
+	})
+}
+
+func TestPersistableBundleValueRoundTrip(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		p := api.NewParcel()
+		if err := WritePersistableBundleValueToParcel(p, nil); err != nil {
+			t.Fatalf("WritePersistableBundleValueToParcel(nil): %v", err)
+		}
+		if err := p.SetPosition(0); err != nil {
+			t.Fatalf("SetPosition: %v", err)
+		}
+		got, err := ReadPersistableBundleValueFromParcel(p)
+		if err != nil {
+			t.Fatalf("ReadPersistableBundleValueFromParcel(nil): %v", err)
+		}
+		if got != nil {
+			t.Fatalf("got = %#v, want nil", got)
+		}
+	})
+
+	t.Run("raw", func(t *testing.T) {
+		p := api.NewParcel()
+		value := NewRawPersistableBundle([]byte{4, 3, 2, 1}, false)
+		if err := WritePersistableBundleValueToParcel(p, value); err != nil {
+			t.Fatalf("WritePersistableBundleValueToParcel(raw): %v", err)
+		}
+		if err := p.SetPosition(0); err != nil {
+			t.Fatalf("SetPosition: %v", err)
+		}
+		got, err := ReadPersistableBundleValueFromParcel(p)
+		if err != nil {
+			t.Fatalf("ReadPersistableBundleValueFromParcel(raw): %v", err)
+		}
+		if got == nil || got.Native || string(got.RawData) != string([]byte{4, 3, 2, 1}) {
+			t.Fatalf("got = %#v, want java raw persistable bundle", got)
 		}
 	})
 }

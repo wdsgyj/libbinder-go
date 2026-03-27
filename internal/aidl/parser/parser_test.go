@@ -208,3 +208,29 @@ parcelable Holder {
 		t.Fatalf("holder.Fields[0].DefaultValue = %q, want Kind.TWO", got)
 	}
 }
+
+func TestParseQualifiedParcelableForwardDeclaration(t *testing.T) {
+	src := `
+package android.app;
+
+parcelable ActivityManager.MemoryInfo;
+`
+
+	file, err := Parse("activity_manager.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("len(Decls) = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(*ast.ParcelableDecl)
+	if !ok {
+		t.Fatalf("decl type = %T, want *ast.ParcelableDecl", file.Decls[0])
+	}
+	if decl.Name != "ActivityManager.MemoryInfo" {
+		t.Fatalf("decl.Name = %q, want ActivityManager.MemoryInfo", decl.Name)
+	}
+	if decl.Structured {
+		t.Fatal("decl.Structured = true, want false")
+	}
+}
