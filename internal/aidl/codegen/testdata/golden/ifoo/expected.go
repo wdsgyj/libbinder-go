@@ -8,14 +8,14 @@ import (
 	"github.com/wdsgyj/libbinder-go/binder"
 )
 
-func writeNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {
+func ifooWriteNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {
 	if v == nil {
 		return p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))
 	}
 	return p.WriteParcelFileDescriptor(*v)
 }
 
-func readNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {
+func ifooReadNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {
 	v, err := p.ReadParcelFileDescriptor()
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func readNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.Parce
 	return &v, nil
 }
 
-func readRequiredParcelFileDescriptorFromParcel(p *binder.Parcel) (binder.ParcelFileDescriptor, error) {
+func ifooReadRequiredParcelFileDescriptorFromParcel(p *binder.Parcel) (binder.ParcelFileDescriptor, error) {
 	v, err := p.ReadParcelFileDescriptor()
 	if err != nil {
 		return binder.ParcelFileDescriptor{}, err

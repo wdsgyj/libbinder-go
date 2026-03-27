@@ -7,6 +7,7 @@ import (
 	"math"
 	"syscall"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
@@ -326,6 +327,10 @@ func (p *Parcel) WriteString(v string) error {
 	return p.WriteNullableString(&v)
 }
 
+func (p *Parcel) WriteString8(v string) error {
+	return p.WriteNullableString8(&v)
+}
+
 func (p *Parcel) WriteNullableString(v *string) error {
 	if v == nil {
 		return p.WriteInt32(-1)
@@ -350,6 +355,28 @@ func (p *Parcel) WriteNullableString(v *string) error {
 	})
 }
 
+func (p *Parcel) WriteNullableString8(v *string) error {
+	if v == nil {
+		return p.WriteInt32(-1)
+	}
+	if !utf8.ValidString(*v) {
+		return fmt.Errorf("%w: invalid utf-8 string", ErrBadParcelable)
+	}
+	if len(*v) > maxInt32 {
+		return fmt.Errorf("%w: string8 too large: %d bytes", ErrBadParcelable, len(*v))
+	}
+	if len(*v) > maxInt-1 {
+		return fmt.Errorf("%w: string8 payload overflow", ErrBadParcelable)
+	}
+	if err := p.WriteInt32(int32(len(*v))); err != nil {
+		return err
+	}
+	return p.writeBlock(len(*v)+1, func(dst []byte) {
+		copy(dst, *v)
+		dst[len(*v)] = 0
+	})
+}
+
 func (p *Parcel) WriteBytes(b []byte) error {
 	if b == nil {
 		return p.WriteInt32(-1)
@@ -359,6 +386,16 @@ func (p *Parcel) WriteBytes(b []byte) error {
 	}
 	if err := p.WriteInt32(int32(len(b))); err != nil {
 		return err
+	}
+	return p.writeBlock(len(b), func(dst []byte) {
+		copy(dst, b)
+	})
+}
+
+// WriteRawBytes writes a fixed-length raw payload without a length prefix.
+func (p *Parcel) WriteRawBytes(b []byte) error {
+	if b == nil {
+		return p.writeBlock(0, func(dst []byte) {})
 	}
 	return p.writeBlock(len(b), func(dst []byte) {
 		copy(dst, b)
@@ -632,6 +669,17 @@ func (p *Parcel) ReadString() (string, error) {
 	return *s, nil
 }
 
+func (p *Parcel) ReadString8() (string, error) {
+	s, err := p.ReadNullableString8()
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("%w: unexpected null string8", ErrBadParcelable)
+	}
+	return *s, nil
+}
+
 func (p *Parcel) ReadNullableString() (*string, error) {
 	size, err := p.ReadInt32()
 	if err != nil {
@@ -666,6 +714,37 @@ func (p *Parcel) ReadNullableString() (*string, error) {
 	return &value, nil
 }
 
+func (p *Parcel) ReadNullableString8() (*string, error) {
+	size, err := p.ReadInt32()
+	if err != nil {
+		return nil, err
+	}
+	if size < 0 {
+		return nil, nil
+	}
+	if size > int32(maxInt32) {
+		return nil, fmt.Errorf("%w: string8 too large: %d bytes", ErrBadParcelable, size)
+	}
+	if int(size) > maxInt-1 {
+		return nil, fmt.Errorf("%w: string8 payload overflow", ErrBadParcelable)
+	}
+
+	block, err := p.readBlock(int(size) + 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(block) == 0 || block[len(block)-1] != 0 {
+		return nil, fmt.Errorf("%w: unterminated string8", ErrBadParcelable)
+	}
+	raw := block[:len(block)-1]
+	if !utf8.Valid(raw) {
+		return nil, fmt.Errorf("%w: invalid utf-8 string8 payload", ErrBadParcelable)
+	}
+
+	value := string(raw)
+	return &value, nil
+}
+
 func (p *Parcel) ReadBytes() ([]byte, error) {
 	size, err := p.ReadInt32()
 	if err != nil {
@@ -680,6 +759,17 @@ func (p *Parcel) ReadBytes() ([]byte, error) {
 		return nil, err
 	}
 
+	out := make([]byte, len(block))
+	copy(out, block)
+	return out, nil
+}
+
+// ReadRawBytes reads a fixed-length raw payload without a length prefix.
+func (p *Parcel) ReadRawBytes(n int) ([]byte, error) {
+	block, err := p.readBlock(n)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]byte, len(block))
 	copy(out, block)
 	return out, nil

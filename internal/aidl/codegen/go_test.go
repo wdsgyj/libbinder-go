@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wdsgyj/libbinder-go/internal/aidl/ast"
 	"github.com/wdsgyj/libbinder-go/internal/aidl/gomodel"
 	"github.com/wdsgyj/libbinder-go/internal/aidl/parser"
 )
@@ -979,6 +980,200 @@ func TestGeneratedCustomParcelableRoundTrip(t *testing.T) {
 	testPath := filepath.Join(tmp, "demo", "generated_custom_test.go")
 	if err := os.WriteFile(testPath, []byte(testSrc), 0o644); err != nil {
 		t.Fatalf("WriteFile(generated_custom_test.go): %v", err)
+	}
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test ./... failed: %v\n%s", err, out)
+	}
+}
+
+func TestRenderGoSupportsExternalCustomParcelableDependencyAndOnewayNameCollisions(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("requires host go toolchain")
+	}
+
+	depSrc := `
+package demo;
+
+parcelable Foo;
+`
+	ifaceSrc := `
+package demo;
+
+interface IService {
+  oneway void Send(in Foo value, in String data, in int code);
+  @nullable Foo Echo(in Foo value, in String data, in int code);
+}
+`
+
+	depFile, err := parser.Parse("Foo.aidl", depSrc)
+	if err != nil {
+		t.Fatalf("Parse(Foo.aidl): %v", err)
+	}
+	ifaceFile, err := parser.Parse("IService.aidl", ifaceSrc)
+	if err != nil {
+		t.Fatalf("Parse(IService.aidl): %v", err)
+	}
+
+	customParcelables := map[string]gomodel.CustomParcelableConfig{
+		"demo.Foo": {
+			AIDLName:  "demo.Foo",
+			GoPackage: "example.com/generated/customcodec",
+			GoType:    "FooValue",
+			WriteFunc: "WriteFooToParcel",
+			ReadFunc:  "ReadFooFromParcel",
+			Nullable:  true,
+		},
+	}
+	model, diags := gomodel.Lower(ifaceFile, gomodel.LowerOptions{
+		SourcePath:        "IService.aidl",
+		CustomParcelables: customParcelables,
+		DependencyFiles:   []*ast.File{depFile},
+	})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v", diags)
+	}
+
+	outputs, err := RenderGo(model, GoOptions{CustomParcelables: customParcelables})
+	if err != nil {
+		t.Fatalf("RenderGo: %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("len(outputs) = %d, want 1", len(outputs))
+	}
+
+	tmp := t.TempDir()
+	repoRoot := testRepoRoot(t)
+	goMod := `module example.com/generated
+
+go 1.22
+
+require github.com/wdsgyj/libbinder-go v0.0.0
+
+replace github.com/wdsgyj/libbinder-go => ` + repoRoot + `
+`
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod): %v", err)
+	}
+
+	outPath := filepath.Join(tmp, outputs[0].Path)
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(outPath, outputs[0].Content, 0o644); err != nil {
+		t.Fatalf("WriteFile(generated): %v", err)
+	}
+
+	codecSrc := `package customcodec
+
+import binder "github.com/wdsgyj/libbinder-go/binder"
+
+type FooValue struct {
+	Count int32
+}
+
+func WriteFooToParcel(p *binder.Parcel, v FooValue) error {
+	return p.WriteInt32(v.Count)
+}
+
+func ReadFooFromParcel(p *binder.Parcel) (FooValue, error) {
+	count, err := p.ReadInt32()
+	if err != nil {
+		return FooValue{}, err
+	}
+	return FooValue{Count: count}, nil
+}
+`
+	codecPath := filepath.Join(tmp, "customcodec", "codec.go")
+	if err := os.MkdirAll(filepath.Dir(codecPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(customcodec): %v", err)
+	}
+	if err := os.WriteFile(codecPath, []byte(codecSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(codec): %v", err)
+	}
+
+	testSrc := `package demo
+
+import (
+	"context"
+	"testing"
+
+	customcodec "example.com/generated/customcodec"
+	binder "github.com/wdsgyj/libbinder-go/binder"
+)
+
+type fakeBinder struct {
+	handler binder.Handler
+}
+
+func (b fakeBinder) Descriptor(ctx context.Context) (string, error) {
+	return b.handler.Descriptor(), nil
+}
+
+func (b fakeBinder) Transact(ctx context.Context, code uint32, data *binder.Parcel, flags binder.Flags) (*binder.Parcel, error) {
+	if err := data.SetPosition(0); err != nil {
+		return nil, err
+	}
+	reply, err := b.handler.HandleTransact(ctx, code, data)
+	if err != nil {
+		return nil, err
+	}
+	if reply != nil {
+		if err := reply.SetPosition(0); err != nil {
+			return nil, err
+		}
+	}
+	return reply, nil
+}
+
+func (b fakeBinder) WatchDeath(ctx context.Context) (binder.Subscription, error) {
+	return nil, binder.ErrUnsupported
+}
+
+func (b fakeBinder) Close() error { return nil }
+
+type serviceImpl struct {
+	lastData string
+	lastCode int32
+}
+
+func (s *serviceImpl) Send(ctx context.Context, value customcodec.FooValue, data string, code int32) error {
+	s.lastData = data
+	s.lastCode = code
+	return nil
+}
+
+func (s *serviceImpl) Echo(ctx context.Context, value customcodec.FooValue, data string, code int32) (*customcodec.FooValue, error) {
+	value.Count += int32(len(data)) + code
+	return &value, nil
+}
+
+func TestGeneratedExternalCustomParcelableRoundTrip(t *testing.T) {
+	impl := &serviceImpl{}
+	client := NewIServiceClient(fakeBinder{handler: NewIServiceHandler(impl)})
+
+	if err := client.Send(context.Background(), customcodec.FooValue{Count: 1}, "abc", 7); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if impl.lastData != "abc" || impl.lastCode != 7 {
+		t.Fatalf("impl state = %#v, want data=abc code=7", impl)
+	}
+
+	got, err := client.Echo(context.Background(), customcodec.FooValue{Count: 10}, "abcd", 2)
+	if err != nil {
+		t.Fatalf("Echo: %v", err)
+	}
+	if got == nil || got.Count != 16 {
+		t.Fatalf("got = %#v, want Count=16", got)
+	}
+}
+`
+	testPath := filepath.Join(tmp, "demo", "generated_external_custom_test.go")
+	if err := os.WriteFile(testPath, []byte(testSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(generated_external_custom_test.go): %v", err)
 	}
 
 	cmd := exec.Command("go", "test", "./...")

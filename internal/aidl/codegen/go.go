@@ -16,6 +16,7 @@ const defaultRuntimeImport = "github.com/wdsgyj/libbinder-go/binder"
 type GoOptions struct {
 	RuntimeImportPath string
 	TypeMappingsPath  string
+	CustomParcelables map[string]gomodel.CustomParcelableConfig
 }
 
 type OutputFile struct {
@@ -35,6 +36,7 @@ func RenderGo(model *gomodel.File, opts GoOptions) ([]OutputFile, error) {
 		model:             model,
 		runtimeImportPath: opts.RuntimeImportPath,
 		typeMappingsPath:  opts.TypeMappingsPath,
+		customParcelables: opts.CustomParcelables,
 	}
 	if renderer.runtimeImportPath == "" {
 		renderer.runtimeImportPath = defaultRuntimeImport
@@ -59,6 +61,7 @@ type goRenderer struct {
 	model             *gomodel.File
 	runtimeImportPath string
 	typeMappingsPath  string
+	customParcelables map[string]gomodel.CustomParcelableConfig
 	buf               bytes.Buffer
 	parcelablesByName map[string]*gomodel.Parcelable
 	unionsByName      map[string]*gomodel.Union
@@ -239,6 +242,29 @@ func (r *goRenderer) imports() []importSpec {
 		}
 		add(p.Custom.GoPackage, p.Custom.ImportAlias)
 	}
+	for _, p := range r.model.Parcelables {
+		for _, field := range p.Fields {
+			r.addTypeImports(set, field.Type)
+		}
+	}
+	for _, u := range r.model.Unions {
+		for _, field := range u.Fields {
+			r.addTypeImports(set, field.Type)
+		}
+	}
+	for _, iface := range r.model.Interfaces {
+		for _, method := range iface.Methods {
+			if method.Return != nil {
+				r.addTypeImports(set, method.Return.Type)
+			}
+			for _, arg := range method.Inputs {
+				r.addTypeImports(set, arg.Type)
+			}
+			for _, arg := range method.Outputs {
+				r.addTypeImports(set, arg.Type)
+			}
+		}
+	}
 
 	imports := make([]importSpec, 0, len(set))
 	for _, imp := range set {
@@ -251,6 +277,55 @@ func (r *goRenderer) imports() []importSpec {
 		return imports[i].Path < imports[j].Path
 	})
 	return imports
+}
+
+func (r *goRenderer) addTypeImports(set map[string]importSpec, typ *gomodel.Type) {
+	if typ == nil {
+		return
+	}
+	switch typ.Kind {
+	case gomodel.TypeSlice, gomodel.TypeArray:
+		r.addTypeImports(set, typ.Elem)
+	case gomodel.TypeParcelable:
+		if cfg, ok := r.customParcelables[typ.AIDLName]; ok && cfg.GoPackage != "" {
+			alias := customImportAlias(cfg.GoPackage)
+			set[alias+"\x00"+cfg.GoPackage] = importSpec{Path: cfg.GoPackage, Alias: alias}
+		}
+	case gomodel.TypeUnion, gomodel.TypeInterface, gomodel.TypeBinder, gomodel.TypeExternal:
+		return
+	}
+}
+
+func customImportAlias(goPackage string) string {
+	goPackage = strings.TrimSuffix(goPackage, "/")
+	parts := strings.Split(goPackage, "/")
+	var base string
+	switch len(parts) {
+	case 0:
+		base = "customparcelable"
+	case 1:
+		base = parts[0]
+	default:
+		base = parts[len(parts)-2] + "_" + parts[len(parts)-1]
+	}
+
+	var b strings.Builder
+	for _, r := range strings.ToLower(base) {
+		switch {
+		case 'a' <= r && r <= 'z', '0' <= r && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	alias := b.String()
+	if alias == "" {
+		return "customparcelable"
+	}
+	if alias[0] >= '0' && alias[0] <= '9' {
+		return "aidl_" + alias
+	}
+	return alias
 }
 
 func (r *goRenderer) hasStableInterfaces() bool {
@@ -319,14 +394,14 @@ func enumCastValue(enum *gomodel.Enum) string {
 }
 
 func (r *goRenderer) renderParcelFileDescriptorHelpers() {
-	r.linef("func writeNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {")
+	r.linef("func %s(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {", r.nullableParcelFileDescriptorWriterName())
 	r.linef("\tif v == nil {")
 	r.linef("\t\treturn p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))")
 	r.linef("\t}")
 	r.linef("\treturn p.WriteParcelFileDescriptor(*v)")
 	r.linef("}")
 	r.linef("")
-	r.linef("func readNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {")
+	r.linef("func %s(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {", r.nullableParcelFileDescriptorReaderName())
 	r.linef("\tv, err := p.ReadParcelFileDescriptor()")
 	r.linef("\tif err != nil {")
 	r.linef("\t\treturn nil, err")
@@ -337,7 +412,7 @@ func (r *goRenderer) renderParcelFileDescriptorHelpers() {
 	r.linef("\treturn &v, nil")
 	r.linef("}")
 	r.linef("")
-	r.linef("func readRequiredParcelFileDescriptorFromParcel(p *binder.Parcel) (binder.ParcelFileDescriptor, error) {")
+	r.linef("func %s(p *binder.Parcel) (binder.ParcelFileDescriptor, error) {", r.requiredParcelFileDescriptorReaderName())
 	r.linef("\tv, err := p.ReadParcelFileDescriptor()")
 	r.linef("\tif err != nil {")
 	r.linef("\t\treturn binder.ParcelFileDescriptor{}, err")
@@ -763,6 +838,9 @@ func (r *goRenderer) renderInterface(iface *gomodel.Interface) {
 	r.linef("\tif descriptor != %sDescriptor {", iface.GoName)
 	r.linef("\t\treturn nil, fmt.Errorf(\"%%w: descriptor %%q, want %%q\", binder.ErrBadParcelable, descriptor, %sDescriptor)", iface.GoName)
 	r.linef("\t}")
+	if len(iface.Methods) != 0 {
+		r.linef("\tparcel := data")
+	}
 	r.linef("\tswitch code {")
 	for _, method := range iface.Methods {
 		r.renderHandlerCase(iface, method)
@@ -900,8 +978,8 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 	r.linef("\tif ctx == nil {")
 	r.linef("\t\tctx = context.Background()")
 	r.linef("\t}")
-	r.linef("\tdata := binder.NewParcel()")
-	r.linef("\tif err := data.WriteInterfaceToken(%sDescriptor); err != nil {", iface.GoName)
+	r.linef("\treq := binder.NewParcel()")
+	r.linef("\tif err := req.WriteInterfaceToken(%sDescriptor); err != nil {", iface.GoName)
 	r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 	r.linef("\t}")
 	if r.methodNeedsRegistrar(method.Inputs) {
@@ -911,7 +989,7 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 		r.linef("\t}")
 	}
 	for _, arg := range method.Inputs {
-		r.linef("\tif err := %s; err != nil {", r.writeExpr("data", arg.GoName, arg.Type, "registrar"))
+		r.linef("\tif err := %s; err != nil {", r.writeExpr("req", arg.GoName, arg.Type, "registrar"))
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
 	}
@@ -919,60 +997,73 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 	if method.Oneway {
 		flagExpr = "binder.FlagOneway"
 	}
-	r.linef("\treply, err := c.target.Transact(ctx, %sTransaction%s, data, %s)", iface.GoName, method.GoName, flagExpr)
-	r.linef("\tif err != nil {")
-	r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
-	r.linef("\t}")
 	if method.Oneway {
+		r.linef("\t_, err := c.target.Transact(ctx, %sTransaction%s, req, %s)", iface.GoName, method.GoName, flagExpr)
+		r.linef("\tif err != nil {")
+		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
+		r.linef("\t}")
 		r.linef("\treturn nil")
 		r.linef("}")
 		r.linef("")
 		return
 	}
-	r.linef("\tif reply == nil {")
+	r.linef("\tresp, err := c.target.Transact(ctx, %sTransaction%s, req, %s)", iface.GoName, method.GoName, flagExpr)
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
+	r.linef("\t}")
+	r.linef("\tif resp == nil {")
 	r.linef("\t\treturn %s", r.methodErrorReturn(method, "binder.ErrBadParcelable"))
 	r.linef("\t}")
+	retVar := "ret"
 	if method.Return != nil {
-		r.linef("\tret, err := %s", r.readExpr("reply", method.Return.Type))
+		r.linef("\t%s, err := %s", retVar, r.readExpr("resp", method.Return.Type))
 		r.linef("\tif err != nil {")
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
 	}
+	outVars := make([]string, 0, len(method.Outputs))
 	for _, out := range method.Outputs {
-		r.linef("\t%s, err := %s", out.GoName, r.readExpr("reply", out.Type))
+		outVar := resultLocalName(out.GoName)
+		outVars = append(outVars, outVar)
+		r.linef("\t%s, err := %s", outVar, r.readExpr("resp", out.Type))
 		r.linef("\tif err != nil {")
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
 	}
-	r.linef("\treturn %s", r.methodSuccessReturn(method))
+	r.linef("\treturn %s", r.methodSuccessReturnVars(method, retVar, outVars))
 	r.linef("}")
 	r.linef("")
 }
 
 func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel.Method) {
 	r.linef("\tcase %sTransaction%s:", iface.GoName, method.GoName)
+	argVars := make([]string, 0, len(method.Inputs))
 	for _, arg := range method.Inputs {
-		r.linef("\t\t%s, err := %s", arg.GoName, r.readExpr("data", arg.Type))
+		argVar := argLocalName(arg.GoName)
+		argVars = append(argVars, argVar)
+		r.linef("\t\t%s, err := %s", argVar, r.readExpr("parcel", arg.Type))
 		r.linef("\t\tif err != nil {")
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
 	}
 	callArgs := make([]string, 0, 1+len(method.Inputs))
 	callArgs = append(callArgs, "ctx")
-	for _, arg := range method.Inputs {
-		callArgs = append(callArgs, arg.GoName)
-	}
+	callArgs = append(callArgs, argVars...)
 	if method.Oneway {
 		r.linef("\t\treturn nil, h.impl.%s(%s)", method.GoName, strings.Join(callArgs, ", "))
 		return
 	}
 
 	resultVars := make([]string, 0, len(method.Outputs)+2)
+	retVar := "ret"
 	if method.Return != nil {
-		resultVars = append(resultVars, "ret")
+		resultVars = append(resultVars, retVar)
 	}
+	outVars := make([]string, 0, len(method.Outputs))
 	for _, out := range method.Outputs {
-		resultVars = append(resultVars, out.GoName)
+		outVar := resultLocalName(out.GoName)
+		outVars = append(outVars, outVar)
+		resultVars = append(resultVars, outVar)
 	}
 	resultVars = append(resultVars, "err")
 	r.linef("\t\t%s := h.impl.%s(%s)", strings.Join(resultVars, ", "), method.GoName, strings.Join(callArgs, ", "))
@@ -981,12 +1072,12 @@ func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel
 	r.linef("\t\t}")
 	r.linef("\t\treply := binder.NewParcel()")
 	if method.Return != nil {
-		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", "ret", method.Return.Type, "h.registrar"))
+		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", retVar, method.Return.Type, "h.registrar"))
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
 	}
-	for _, out := range method.Outputs {
-		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", out.GoName, out.Type, "h.registrar"))
+	for i, out := range method.Outputs {
+		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", outVars[i], out.Type, "h.registrar"))
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
 	}
@@ -1035,12 +1126,23 @@ func (r *goRenderer) methodSuccessReturn(method *gomodel.Method) string {
 	if method.Oneway {
 		return "nil"
 	}
+	return r.methodSuccessReturnVars(method, "ret", nil)
+}
+
+func (r *goRenderer) methodSuccessReturnVars(method *gomodel.Method, retVar string, outVars []string) string {
+	if method.Oneway {
+		return "nil"
+	}
 	var parts []string
 	if method.Return != nil {
-		parts = append(parts, "ret")
+		parts = append(parts, retVar)
 	}
-	for _, out := range method.Outputs {
-		parts = append(parts, out.GoName)
+	for i, out := range method.Outputs {
+		if i < len(outVars) && outVars[i] != "" {
+			parts = append(parts, outVars[i])
+			continue
+		}
+		parts = append(parts, resultLocalName(out.GoName))
 	}
 	parts = append(parts, "nil")
 	return strings.Join(parts, ", ")
@@ -1068,6 +1170,9 @@ func (r *goRenderer) writeExpr(parcel string, value string, typ *gomodel.Type, r
 		}
 		return fmt.Sprintf("%s.WriteString(%s)", parcel, value)
 	case gomodel.TypeParcelable:
+		if cfg, alias, ok := r.customParcelableConfig(typ); ok {
+			return r.customParcelableWriteExpr(parcel, value, typ, cfg, alias)
+		}
 		if r.typeNeedsRegistrar(typ) {
 			if typ.Nullable {
 				return fmt.Sprintf("writeNullable%sToParcelWithRegistrar(%s, %s, %s)", typ.NamedGo, parcel, registrarExpr(registrar), value)
@@ -1097,7 +1202,7 @@ func (r *goRenderer) writeExpr(parcel string, value string, typ *gomodel.Type, r
 		return fmt.Sprintf("%s.WriteFileDescriptor(%s)", parcel, value)
 	case gomodel.TypeParcelFileDescriptor:
 		if typ.Nullable {
-			return fmt.Sprintf("writeNullableParcelFileDescriptorToParcel(%s, %s)", parcel, value)
+			return fmt.Sprintf("%s(%s, %s)", r.nullableParcelFileDescriptorWriterName(), parcel, value)
 		}
 		return fmt.Sprintf("%s.WriteParcelFileDescriptor(%s)", parcel, value)
 	case gomodel.TypeInterface:
@@ -1133,6 +1238,9 @@ func (r *goRenderer) readExpr(parcel string, typ *gomodel.Type) string {
 		}
 		return fmt.Sprintf("%s.ReadString()", parcel)
 	case gomodel.TypeParcelable:
+		if cfg, alias, ok := r.customParcelableConfig(typ); ok {
+			return r.customParcelableReadExpr(parcel, typ, cfg, alias)
+		}
 		if typ.Nullable {
 			return fmt.Sprintf("readNullable%sFromParcel(%s)", typ.NamedGo, parcel)
 		}
@@ -1150,9 +1258,9 @@ func (r *goRenderer) readExpr(parcel string, typ *gomodel.Type) string {
 		return fmt.Sprintf("%s.ReadFileDescriptor()", parcel)
 	case gomodel.TypeParcelFileDescriptor:
 		if typ.Nullable {
-			return fmt.Sprintf("readNullableParcelFileDescriptorFromParcel(%s)", parcel)
+			return fmt.Sprintf("%s(%s)", r.nullableParcelFileDescriptorReaderName(), parcel)
 		}
-		return fmt.Sprintf("readRequiredParcelFileDescriptorFromParcel(%s)", parcel)
+		return fmt.Sprintf("%s(%s)", r.requiredParcelFileDescriptorReaderName(), parcel)
 	case gomodel.TypeInterface:
 		return fmt.Sprintf("read%sFromParcel(%s)", typ.NamedGo, parcel)
 	case gomodel.TypeSlice:
@@ -1247,6 +1355,113 @@ func lowerFirst(name string) string {
 		return ""
 	}
 	return strings.ToLower(name[:1]) + name[1:]
+}
+
+func argLocalName(name string) string {
+	return uniqueLocalName(name, "Arg")
+}
+
+func resultLocalName(name string) string {
+	return uniqueLocalName(name, "Value")
+}
+
+func uniqueLocalName(name string, suffix string) string {
+	base := lowerFirst(name)
+	if base == "" {
+		base = "value"
+	}
+	base = sanitizeIdentifier(base)
+	if base == "" {
+		base = "value"
+	}
+	return base + suffix
+}
+
+func sanitizeIdentifier(name string) string {
+	var b strings.Builder
+	for i, r := range name {
+		if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || r == '_' || (i > 0 && '0' <= r && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	return b.String()
+}
+
+func (r *goRenderer) nullableParcelFileDescriptorWriterName() string {
+	return r.fileHelperPrefix() + "WriteNullableParcelFileDescriptorToParcel"
+}
+
+func (r *goRenderer) nullableParcelFileDescriptorReaderName() string {
+	return r.fileHelperPrefix() + "ReadNullableParcelFileDescriptorFromParcel"
+}
+
+func (r *goRenderer) requiredParcelFileDescriptorReaderName() string {
+	return r.fileHelperPrefix() + "ReadRequiredParcelFileDescriptorFromParcel"
+}
+
+func (r *goRenderer) fileHelperPrefix() string {
+	base := "aidlGenerated"
+	if r.model != nil && r.model.SourcePath != "" {
+		base = strings.TrimSuffix(filepath.Base(r.model.SourcePath), filepath.Ext(r.model.SourcePath))
+	}
+	prefix := lowerFirst(sanitizeIdentifier(base))
+	if prefix == "" {
+		return "aidlGenerated"
+	}
+	if prefix[0] >= '0' && prefix[0] <= '9' {
+		return "aidl" + prefix
+	}
+	return prefix
+}
+
+func (r *goRenderer) customParcelableConfig(typ *gomodel.Type) (gomodel.CustomParcelableConfig, string, bool) {
+	if typ == nil || typ.Kind != gomodel.TypeParcelable {
+		return gomodel.CustomParcelableConfig{}, "", false
+	}
+	cfg, ok := r.customParcelables[typ.AIDLName]
+	if !ok || cfg.GoPackage == "" || cfg.GoType == "" || cfg.WriteFunc == "" || cfg.ReadFunc == "" {
+		return gomodel.CustomParcelableConfig{}, "", false
+	}
+	return cfg, customImportAlias(cfg.GoPackage), true
+}
+
+func (r *goRenderer) customParcelableWriteExpr(parcel string, value string, typ *gomodel.Type, cfg gomodel.CustomParcelableConfig, alias string) string {
+	writeCall := fmt.Sprintf("%s.%s(%s, %s)", alias, cfg.WriteFunc, parcel, value)
+	if !typ.Nullable {
+		return writeCall
+	}
+	return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return %s.WriteInt32(0)
+	}
+	if err := %s.WriteInt32(1); err != nil {
+		return err
+	}
+	return %s.%s(%s, *%s)
+}()`, value, parcel, parcel, alias, cfg.WriteFunc, parcel, value)
+}
+
+func (r *goRenderer) customParcelableReadExpr(parcel string, typ *gomodel.Type, cfg gomodel.CustomParcelableConfig, alias string) string {
+	readCall := fmt.Sprintf("%s.%s(%s)", alias, cfg.ReadFunc, parcel)
+	if !typ.Nullable {
+		return readCall
+	}
+	return fmt.Sprintf(`func() (%s, error) {
+	present, err := %s.ReadInt32()
+	if err != nil {
+		return nil, err
+	}
+	if present == 0 {
+		return nil, nil
+	}
+	value, err := %s.%s(%s)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}()`, typ.GoExpr, parcel, alias, cfg.ReadFunc, parcel)
 }
 
 func registrarExpr(name string) string {

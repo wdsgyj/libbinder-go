@@ -164,6 +164,36 @@ func TestParcelStringWireFormat(t *testing.T) {
 	}
 }
 
+func TestParcelString8WireFormat(t *testing.T) {
+	p := NewParcel()
+
+	if err := p.WriteString8("A🙂"); err != nil {
+		t.Fatalf("WriteString8: %v", err)
+	}
+
+	want := []byte{
+		0x05, 0x00, 0x00, 0x00,
+		0x41,
+		0xf0, 0x9f, 0x99, 0x82,
+		0x00, 0x00, 0x00,
+	}
+	if got := p.Bytes(); string(got) != string(want) {
+		t.Fatalf("Bytes = %v, want %v", got, want)
+	}
+
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := p.ReadString8()
+	if err != nil {
+		t.Fatalf("ReadString8: %v", err)
+	}
+	if got != "A🙂" {
+		t.Fatalf("ReadString8 = %q, want %q", got, "A🙂")
+	}
+}
+
 func TestParcelBytesNilEmptyAndAligned(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
 		p := NewParcel()
@@ -232,6 +262,33 @@ func TestParcelBytesNilEmptyAndAligned(t *testing.T) {
 			t.Fatalf("ReadBytes(aligned) = %v, want [1 2 3]", got)
 		}
 	})
+}
+
+func TestParcelRawBytesAlignedRoundTrip(t *testing.T) {
+	p := NewParcel()
+	if err := p.WriteRawBytes([]byte{1, 2, 3, 4, 5}); err != nil {
+		t.Fatalf("WriteRawBytes: %v", err)
+	}
+
+	want := []byte{1, 2, 3, 4, 5, 0, 0, 0}
+	if got := p.Bytes(); string(got) != string(want) {
+		t.Fatalf("Bytes = %v, want %v", got, want)
+	}
+
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := p.ReadRawBytes(5)
+	if err != nil {
+		t.Fatalf("ReadRawBytes: %v", err)
+	}
+	if string(got) != string([]byte{1, 2, 3, 4, 5}) {
+		t.Fatalf("ReadRawBytes = %v, want [1 2 3 4 5]", got)
+	}
+	if remaining := p.Remaining(); remaining != 0 {
+		t.Fatalf("Remaining = %d, want 0", remaining)
+	}
 }
 
 func TestParcelPositionAndOverwrite(t *testing.T) {

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "parcelables": [
+    {
+      "aidl_name": "android.content.ComponentName",
+      "go_package": "github.com/wdsgyj/libbinder-go/service/framework",
+      "go_type": "ComponentName",
+      "write_func": "WriteComponentNameToParcel",
+      "read_func": "ReadComponentNameFromParcel",
+      "nullable": true
+    },
+    {
+      "aidl_name": "android.content.Intent",
+      "go_package": "github.com/wdsgyj/libbinder-go/service/framework",
+      "go_type": "Intent",
+      "write_func": "WriteIntentToParcel",
+      "read_func": "ReadIntentFromParcel",
+      "nullable": true
+    },
+    {
+      "aidl_name": "android.os.Bundle",
+      "go_package": "github.com/wdsgyj/libbinder-go/service/framework",
+      "go_type": "Bundle",
+      "write_func": "WriteBundleToParcel",
+      "read_func": "ReadBundleFromParcel",
+      "nullable": true
+    },
+    {
+      "aidl_name": "android.app.ProfilerInfo",
+      "go_package": "github.com/wdsgyj/libbinder-go/service/framework",
+      "go_type": "ProfilerInfo",
+      "write_func": "WriteProfilerInfoToParcel",
+      "read_func": "ReadProfilerInfoFromParcel",
+      "nullable": true
+    },
+    {
+      "aidl_name": "android.app.WaitResult",
+      "go_package": "github.com/wdsgyj/libbinder-go/service/framework",
+      "go_type": "WaitResult",
+      "write_func": "WriteWaitResultToParcel",
+      "read_func": "ReadWaitResultFromParcel",
+      "nullable": true
+    }
+  ]
+}

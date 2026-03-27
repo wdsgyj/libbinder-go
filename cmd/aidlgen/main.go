@@ -147,7 +147,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 			rendered, err := codegen.RenderGo(model, codegen.GoOptions{
-				TypeMappingsPath: *typesPath,
+				TypeMappingsPath:  *typesPath,
+				CustomParcelables: customParcelables,
 			})
 			if err != nil {
 				fmt.Fprintf(stderr, "generate go %s: %v\n", path, err)
