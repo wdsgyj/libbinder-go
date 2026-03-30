@@ -133,6 +133,7 @@ replace github.com/wdsgyj/libbinder-go => ` + repoRoot + `
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	binder "github.com/wdsgyj/libbinder-go/binder"
@@ -207,7 +208,7 @@ func (echoImpl) Echo(ctx context.Context, msg string, payload Payload) (*string,
 		Text: &reply,
 	}
 	payload.Ids = append(payload.Ids, 9)
-	payload.Pair = [2]int32{7, 8}
+	payload.Pair = []int32{7, 8}
 	return &reply, 200, payload, nil
 }
 
@@ -224,7 +225,7 @@ func TestGeneratedClientServerRoundTrip(t *testing.T) {
 			Code: 7,
 		},
 		Ids:  []int32{1, 2},
-		Pair: [2]int32{3, 4},
+		Pair: []int32{3, 4},
 	})
 	if err != nil {
 		t.Fatalf("Echo: %v", err)
@@ -247,7 +248,7 @@ func TestGeneratedClientServerRoundTrip(t *testing.T) {
 	if len(payloadOut.Ids) != 3 || payloadOut.Ids[2] != 9 {
 		t.Fatalf("payloadOut.Ids = %#v, want [1 2 9]", payloadOut.Ids)
 	}
-	if payloadOut.Pair != [2]int32{7, 8} {
+	if !reflect.DeepEqual(payloadOut.Pair, []int32{7, 8}) {
 		t.Fatalf("payloadOut.Pair = %#v, want [7 8]", payloadOut.Pair)
 	}
 }

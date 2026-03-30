@@ -63,7 +63,7 @@ const IBasicMatrixServiceTransactionExpandBundle uint32 = 14
 type IBasicMatrixService interface {
 	EchoNullable(ctx context.Context, value *string) (*string, error)
 	ReverseInts(ctx context.Context, values []int32) ([]int32, error)
-	RotateTriple(ctx context.Context, triple [3]int32) ([3]int32, error)
+	RotateTriple(ctx context.Context, triple []int32) ([]int32, error)
 	DecorateTags(ctx context.Context, tags []string) ([]string, error)
 	DecorateTagGroups(ctx context.Context, groups []BasicStringGroup) ([]BasicStringGroup, error)
 	DecoratePayloads(ctx context.Context, payloads []BaselinePayload) ([]BaselinePayload, error)
@@ -187,38 +187,30 @@ func (c *iBasicMatrixServiceClient) ReverseInts(ctx context.Context, values []in
 	return ret, nil
 }
 
-func (c *iBasicMatrixServiceClient) RotateTriple(ctx context.Context, triple [3]int32) ([3]int32, error) {
+func (c *iBasicMatrixServiceClient) RotateTriple(ctx context.Context, triple []int32) ([]int32, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
-		return *new([3]int32), err
+		return nil, err
 	}
-	if err := binder.WriteFixedSlice(req, triple[:], 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
-		return *new([3]int32), err
+	if err := binder.WriteFixedSlice(req, triple, 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
+		return nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionRotateTriple, req, binder.FlagNone)
 	if err != nil {
-		return *new([3]int32), err
+		return nil, err
 	}
 	if resp == nil {
-		return *new([3]int32), binder.ErrBadParcelable
+		return nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return *new([3]int32), err
+		return nil, err
 	}
-	ret, err := func() ([3]int32, error) {
-		items, err := binder.ReadFixedSlice(resp, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
-		if err != nil {
-			return *new([3]int32), err
-		}
-		var value [3]int32
-		copy(value[:], items)
-		return value, nil
-	}()
+	ret, err := binder.ReadFixedSlice(resp, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
 	if err != nil {
-		return *new([3]int32), err
+		return nil, err
 	}
 	return ret, nil
 }
@@ -765,15 +757,7 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		return reply, nil
 	case IBasicMatrixServiceTransactionRotateTriple:
-		tripleArg, err := func() ([3]int32, error) {
-			items, err := binder.ReadFixedSlice(data, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
-			if err != nil {
-				return *new([3]int32), err
-			}
-			var value [3]int32
-			copy(value[:], items)
-			return value, nil
-		}()
+		tripleArg, err := binder.ReadFixedSlice(data, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
 		if err != nil {
 			return nil, err
 		}
@@ -793,7 +777,7 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		if err := binder.WriteNoException(reply); err != nil {
 			return nil, err
 		}
-		if err := binder.WriteFixedSlice(reply, ret[:], 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
+		if err := binder.WriteFixedSlice(reply, ret, 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
 			return nil, err
 		}
 		return reply, nil

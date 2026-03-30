@@ -82,7 +82,7 @@
 | `byte[]` | 可空字节数组 codec | 已具备基础实现 | 已完成 |
 | `T[]` | 通用 slice helper | 已具备基础实现 | 阶段 3 |
 | `List<T>` | 与动态数组共用 slice helper | 已具备基础实现 | 阶段 3 |
-| `T[N]` | fixed-size helper + 长度校验 | 已具备基础实现 | 阶段 3 |
+| `T[N]` | slice API + fixed-size helper + 长度校验 | 已具备基础实现 | 阶段 3 |
 | nullable 集合 | `nil` 表示 null，空 slice 表示 empty | 已冻结规范 | 阶段 0 / 3 |
 | `IBinder` | 通用 Binder object 传输 | 已具备基础实现 | 阶段 4 |
 | interface type | typed proxy / stub / callback | 已具备基础实现 | 阶段 4 / 7 |

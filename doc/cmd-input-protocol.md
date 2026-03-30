@@ -199,7 +199,7 @@ shell/user
 
 ## 对 `libbinder-go/cmd/input` 的结论
 
-当前仓库中的 [cmd/input/run.go](/Users/clark/dev/go/home/libbinder-go/cmd/input/run.go) 采用的是更小的实现：
+当前仓库中的 [cmd/input/run.go](../cmd/input/run.go) 采用的是更小的实现：
 
 - 直接按 `SHELL_COMMAND_TRANSACTION` 组包
 - 写入 `in/out/err`

@@ -2,6 +2,7 @@ package cases
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/wdsgyj/libbinder-go/binder"
@@ -50,7 +51,7 @@ func (m basicMatrixImpl) ReverseInts(ctx context.Context, values []int32) ([]int
 	return ReverseInts(values), nil
 }
 
-func (m basicMatrixImpl) RotateTriple(ctx context.Context, triple [3]int32) ([3]int32, error) {
+func (m basicMatrixImpl) RotateTriple(ctx context.Context, triple []int32) ([]int32, error) {
 	return RotateTriple(triple), nil
 }
 
@@ -114,5 +115,15 @@ func TestVerifyBasicMatrixPerformance(t *testing.T) {
 	})
 	if err := VerifyBasicMatrixPerformance(context.Background(), client, "go"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRotateTripleRejectsWrongLength(t *testing.T) {
+	client := shared.NewIBasicMatrixServiceClient(fakeBinder{
+		handler: shared.NewIBasicMatrixServiceHandler(basicMatrixImpl{prefix: "go"}),
+	})
+	_, err := client.RotateTriple(context.Background(), []int32{1, 2})
+	if !errors.Is(err, binder.ErrBadParcelable) {
+		t.Fatalf("RotateTriple error = %v, want ErrBadParcelable", err)
 	}
 }

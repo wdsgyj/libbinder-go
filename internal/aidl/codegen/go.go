@@ -504,7 +504,7 @@ func (r *goRenderer) typeExpr(typ *gomodel.Type) string {
 	case gomodel.TypeSlice:
 		return "[]" + r.typeExpr(typ.Elem)
 	case gomodel.TypeArray:
-		return fmt.Sprintf("[%d]%s", typ.FixedLen, r.typeExpr(typ.Elem))
+		return "[]" + r.typeExpr(typ.Elem)
 	case gomodel.TypeMap:
 		if typ.Key == nil || typ.Value == nil {
 			return "map[any]any"
@@ -571,12 +571,12 @@ func (r *goRenderer) zeroExpr(typ *gomodel.Type) string {
 			return "nil"
 		}
 		return "binder.ParcelFileDescriptor{}"
-	case gomodel.TypeParcelable, gomodel.TypeUnion, gomodel.TypeArray:
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
 		if typ.Nullable {
 			return "nil"
 		}
 		return "*new(" + r.typeExpr(typ) + ")"
-	case gomodel.TypeSlice:
+	case gomodel.TypeSlice, gomodel.TypeArray:
 		return "nil"
 	case gomodel.TypeMap:
 		return "nil"
@@ -2020,7 +2020,7 @@ func (r *goRenderer) writeExpr(parcel string, value string, typ *gomodel.Type, r
 	case gomodel.TypeSlice:
 		return fmt.Sprintf("binder.WriteSlice(%s, %s, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, r.typeExpr(typ.Elem), r.contextWriteExpr("p", "item", typ.Elem, registrar))
 	case gomodel.TypeArray:
-		return fmt.Sprintf("binder.WriteFixedSlice(%s, %s[:], %d, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, typ.FixedLen, r.typeExpr(typ.Elem), r.contextWriteExpr("p", "item", typ.Elem, registrar))
+		return fmt.Sprintf("binder.WriteFixedSlice(%s, %s, %d, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, typ.FixedLen, r.typeExpr(typ.Elem), r.contextWriteExpr("p", "item", typ.Elem, registrar))
 	default:
 		return fmt.Sprintf("fmt.Errorf(\"%%w: unsupported type %s\", binder.ErrUnsupported)", r.typeExpr(typ))
 	}
@@ -2099,15 +2099,7 @@ func (r *goRenderer) readExpr(parcel string, typ *gomodel.Type) string {
 	case gomodel.TypeSlice:
 		return fmt.Sprintf("binder.ReadSlice(%s, func(p *binder.Parcel) (%s, error) { return %s })", parcel, r.typeExpr(typ.Elem), r.contextReadExpr("p", typ.Elem))
 	case gomodel.TypeArray:
-		return fmt.Sprintf(`func() (%s, error) {
-	items, err := binder.ReadFixedSlice(%s, %d, func(p *binder.Parcel) (%s, error) { return %s })
-	if err != nil {
-		return %s, err
-	}
-	var value %s
-	copy(value[:], items)
-	return value, nil
-}()`, r.typeExpr(typ), parcel, typ.FixedLen, r.typeExpr(typ.Elem), r.contextReadExpr("p", typ.Elem), r.zeroExpr(typ), r.typeExpr(typ))
+		return fmt.Sprintf("binder.ReadFixedSlice(%s, %d, func(p *binder.Parcel) (%s, error) { return %s })", parcel, typ.FixedLen, r.typeExpr(typ.Elem), r.contextReadExpr("p", typ.Elem))
 	default:
 		return fmt.Sprintf("func() (%s, error) { return %s, fmt.Errorf(\"%%w: unsupported type %s\", binder.ErrUnsupported) }()", r.typeExpr(typ), r.zeroExpr(typ), r.typeExpr(typ))
 	}

@@ -626,7 +626,7 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 			}
 			return &Type{
 				Kind:     TypeArray,
-				GoExpr:   fmt.Sprintf("[%d]%s", *ref.FixedArrayLen, elem.GoExpr),
+				GoExpr:   "[]" + elem.GoExpr,
 				Elem:     elem,
 				FixedLen: *ref.FixedArrayLen,
 				IsArray:  true,

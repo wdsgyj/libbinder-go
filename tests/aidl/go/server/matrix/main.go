@@ -25,7 +25,7 @@ func (m matrixServer) ReverseInts(ctx context.Context, values []int32) ([]int32,
 	return cases.ReverseInts(values), nil
 }
 
-func (m matrixServer) RotateTriple(ctx context.Context, triple [3]int32) ([3]int32, error) {
+func (m matrixServer) RotateTriple(ctx context.Context, triple []int32) ([]int32, error) {
 	return cases.RotateTriple(triple), nil
 }
 

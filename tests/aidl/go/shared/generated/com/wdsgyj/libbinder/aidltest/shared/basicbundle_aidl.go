@@ -45,7 +45,7 @@ func basicBundleReadRequiredParcelFileDescriptorFromParcel(p *binder.Parcel) (bi
 
 type BasicBundle struct {
 	Ints       []int32
-	Triple     [3]int32
+	Triple     []int32
 	Note       *string
 	Tags       []string
 	Payloads   []BaselinePayload
@@ -69,7 +69,7 @@ func writeBasicBundleToParcel(p *binder.Parcel, v BasicBundle) error {
 	if err := binder.WriteSlice(p, v.Ints, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
 		return err
 	}
-	if err := binder.WriteFixedSlice(p, v.Triple[:], 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
+	if err := binder.WriteFixedSlice(p, v.Triple, 3, func(p *binder.Parcel, item int32) error { return p.WriteInt32(item) }); err != nil {
 		return err
 	}
 	if err := p.WriteNullableString(v.Note); err != nil {
@@ -149,15 +149,7 @@ func readBasicBundleFromParcel(p *binder.Parcel) (ret BasicBundle, err error) {
 	if p.Position()-startPos >= int(parcelableSize) {
 		return ret, nil
 	}
-	tripleValue, err := func() ([3]int32, error) {
-		items, err := binder.ReadFixedSlice(p, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
-		if err != nil {
-			return *new([3]int32), err
-		}
-		var value [3]int32
-		copy(value[:], items)
-		return value, nil
-	}()
+	tripleValue, err := binder.ReadFixedSlice(p, 3, func(p *binder.Parcel) (int32, error) { return p.ReadInt32() })
 	if err != nil {
 		return ret, err
 	}

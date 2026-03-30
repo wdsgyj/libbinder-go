@@ -11,7 +11,7 @@ import (
 func BasicMatrixInputBundle() shared.BasicBundle {
 	return shared.BasicBundle{
 		Ints:   []int32{1, 2, 3, 4},
-		Triple: [3]int32{7, 8, 9},
+		Triple: []int32{7, 8, 9},
 		Note:   stringPtr("seed"),
 		Tags:   []string{"red", "blue"},
 		Payloads: []shared.BaselinePayload{
@@ -83,8 +83,11 @@ func ReverseInts(values []int32) []int32 {
 	return out
 }
 
-func RotateTriple(value [3]int32) [3]int32 {
-	return [3]int32{value[1], value[2], value[0]}
+func RotateTriple(value []int32) []int32 {
+	if value == nil {
+		return nil
+	}
+	return []int32{value[1], value[2], value[0]}
 }
 
 func DecorateTags(prefix string, tags []string) []string {
@@ -213,7 +216,7 @@ func ExpandBundle(prefix string, input shared.BasicBundle, payload shared.BasicB
 	doubled := NormalizeBundle(prefix, input)
 	doubled.Ints = append(doubled.Ints, ret)
 	payloadOut := NormalizeBundle(prefix, payload)
-	payloadOut.Triple = [3]int32{payloadOut.Triple[0] + ret, payloadOut.Triple[1], payloadOut.Triple[2]}
+	payloadOut.Triple = []int32{payloadOut.Triple[0] + ret, payloadOut.Triple[1], payloadOut.Triple[2]}
 	return ret, doubled, payloadOut
 }
 
@@ -330,7 +333,7 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 
 	second := shared.BasicBundle{
 		Ints:   []int32{9, 8},
-		Triple: [3]int32{4, 5, 6},
+		Triple: []int32{4, 5, 6},
 		Note:   nil,
 		Tags:   []string{"amber"},
 		Payloads: []shared.BaselinePayload{
@@ -395,7 +398,7 @@ func BasicMatrixLargeInputBundle() shared.BasicBundle {
 	}
 	return shared.BasicBundle{
 		Ints:       ints,
-		Triple:     [3]int32{101, 202, 303},
+		Triple:     []int32{101, 202, 303},
 		Note:       stringPtr("bulk"),
 		Tags:       tags,
 		Payloads:   payloads,

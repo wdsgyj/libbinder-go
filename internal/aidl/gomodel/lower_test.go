@@ -208,6 +208,40 @@ interface IService {
 	}
 }
 
+func TestLowerFixedArrayUsesSliceAPIWithLengthMetadata(t *testing.T) {
+	src := `
+package demo;
+
+parcelable Payload {
+  int[3] triple;
+}
+`
+
+	file, err := parser.Parse("fixed.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "fixed.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	fields := model.Parcelables[0].Fields
+	if len(fields) != 1 {
+		t.Fatalf("len(Fields) = %d, want 1", len(fields))
+	}
+	if got := fields[0].Type.Kind; got != TypeArray {
+		t.Fatalf("Kind = %q, want %q", got, TypeArray)
+	}
+	if got := fields[0].Type.GoExpr; got != "[]int32" {
+		t.Fatalf("GoExpr = %q, want []int32", got)
+	}
+	if got := fields[0].Type.FixedLen; got != 3 {
+		t.Fatalf("FixedLen = %d, want 3", got)
+	}
+}
+
 func TestLowerMapTypes(t *testing.T) {
 	src := `
 package demo;
