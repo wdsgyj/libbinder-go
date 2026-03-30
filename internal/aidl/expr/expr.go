@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	goparser "go/parser"
 	"go/token"
+	"regexp"
 	"strings"
 )
 
@@ -16,8 +17,12 @@ func Normalize(src string) string {
 	if src == "" {
 		return ""
 	}
-	return strings.ReplaceAll(src, "~", "^")
+	src = strings.ReplaceAll(src, "~", "^")
+	src = numericLiteralSuffixRE.ReplaceAllString(src, "$1")
+	return src
 }
+
+var numericLiteralSuffixRE = regexp.MustCompile(`(?i)\b((?:\d+\.\d*|\.\d+|\d+)(?:[eE][+\-]?\d+)?|0[xX][0-9a-fA-F]+)[fLdD]\b`)
 
 func Parse(src string) (goast.Expr, error) {
 	src = Normalize(src)

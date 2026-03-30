@@ -3,6 +3,7 @@
 package demo
 
 import (
+	"fmt"
 	"github.com/wdsgyj/libbinder-go/binder"
 )
 
@@ -77,20 +78,51 @@ func NewHolder() Holder {
 }
 
 func writeHolderToParcel(p *binder.Parcel, v Holder) error {
+	startPos := p.Position()
+	if err := p.WriteInt32(0); err != nil {
+		return err
+	}
 	if err := writeHolderKindToParcel(p, v.Kind); err != nil {
 		return err
 	}
-	return nil
+	endPos := p.Position()
+	if err := p.SetPosition(startPos); err != nil {
+		return err
+	}
+	if err := p.WriteInt32(int32(endPos - startPos)); err != nil {
+		return err
+	}
+	return p.SetPosition(endPos)
 }
 
-func readHolderFromParcel(p *binder.Parcel) (Holder, error) {
-	v := NewHolder()
+func readHolderFromParcel(p *binder.Parcel) (ret Holder, err error) {
+	ret = NewHolder()
+	startPos := p.Position()
+	parcelableSize, err := p.ReadInt32()
+	if err != nil {
+		return ret, err
+	}
+	if parcelableSize < 0 {
+		return ret, nil
+	}
+	endPos := startPos + int(parcelableSize)
+	if endPos < startPos || endPos > p.Len() {
+		return ret, fmt.Errorf("%w: invalid parcelable size %d", binder.ErrBadParcelable, parcelableSize)
+	}
+	defer func() {
+		if setErr := p.SetPosition(endPos); err == nil && setErr != nil {
+			err = setErr
+		}
+	}()
 	kindValue, err := readHolderKindFromParcel(p)
 	if err != nil {
-		return Holder{}, err
+		return ret, err
 	}
-	v.Kind = kindValue
-	return v, nil
+	ret.Kind = kindValue
+	if p.Position()-startPos >= int(parcelableSize) {
+		return ret, nil
+	}
+	return ret, nil
 }
 
 func writeNullableHolderToParcel(p *binder.Parcel, v *Holder) error {

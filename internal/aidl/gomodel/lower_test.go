@@ -186,6 +186,52 @@ interface IService {
 	}
 }
 
+func TestLowerMapTypes(t *testing.T) {
+	src := `
+package demo;
+
+parcelable Rule {
+  String id;
+}
+
+interface IService {
+  Map<String, Rule> GetRules();
+  Map GetRaw();
+}
+`
+
+	file, err := parser.Parse("map.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "map.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	methods := model.Interfaces[0].Methods
+	if got := methods[0].Return.Type.Kind; got != TypeMap {
+		t.Fatalf("typed map kind = %q, want %q", got, TypeMap)
+	}
+	if got := methods[0].Return.Type.GoExpr; got != "map[string]Rule" {
+		t.Fatalf("typed map GoExpr = %q, want map[string]Rule", got)
+	}
+	if methods[0].Return.Type.Key == nil || methods[0].Return.Type.Key.Kind != TypeString {
+		t.Fatalf("typed map key = %#v, want string", methods[0].Return.Type.Key)
+	}
+	if methods[0].Return.Type.Value == nil || methods[0].Return.Type.Value.Kind != TypeParcelable {
+		t.Fatalf("typed map value = %#v, want parcelable", methods[0].Return.Type.Value)
+	}
+
+	if got := methods[1].Return.Type.Kind; got != TypeMap {
+		t.Fatalf("raw map kind = %q, want %q", got, TypeMap)
+	}
+	if got := methods[1].Return.Type.GoExpr; got != "map[any]any" {
+		t.Fatalf("raw map GoExpr = %q, want map[any]any", got)
+	}
+}
+
 func TestLowerMethodArgsAvoidReservedGoIdentifiers(t *testing.T) {
 	src := `
 package demo;
@@ -217,6 +263,77 @@ interface IService {
 	}
 	if got := method.Inputs[3].GoName; got != "err_" {
 		t.Fatalf("fourth arg GoName = %q, want err_", got)
+	}
+}
+
+func TestLowerMethodExplicitTransactionID(t *testing.T) {
+	src := `
+package demo;
+
+oneway interface IFoo {
+  void Ping() = 7;
+  void Pong();
+}
+`
+
+	file, err := parser.Parse("txid.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "txid.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	methods := model.Interfaces[0].Methods
+	if len(methods) != 2 {
+		t.Fatalf("len(Methods) = %d, want 2", len(methods))
+	}
+	if methods[0].TransactionCode != 7 {
+		t.Fatalf("Ping.TransactionCode = %d, want 7", methods[0].TransactionCode)
+	}
+	if methods[1].TransactionCode != 8 {
+		t.Fatalf("Pong.TransactionCode = %d, want 8", methods[1].TransactionCode)
+	}
+}
+
+func TestLowerImportedNestedTypeAlias(t *testing.T) {
+	src := `
+package android.app;
+
+import android.app.ActivityOptions.SceneTransitionInfo;
+
+interface IFoo {
+  void Ping(in SceneTransitionInfo info);
+}
+`
+	depSrc := `
+package android.app;
+
+parcelable ActivityOptions.SceneTransitionInfo;
+`
+
+	file, err := parser.Parse("IFoo.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse(file): %v", err)
+	}
+	dep, err := parser.Parse("ActivityOptions.aidl", depSrc)
+	if err != nil {
+		t.Fatalf("Parse(dep): %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{
+		SourcePath:      "IFoo.aidl",
+		DependencyFiles: []*ast.File{dep},
+	})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	arg := model.Interfaces[0].Methods[0].Inputs[0]
+	if arg.Type.Kind != TypeParcelable || arg.Type.AIDLName != "android.app.ActivityOptions.SceneTransitionInfo" {
+		t.Fatalf("arg.Type = %#v, want android.app.ActivityOptions.SceneTransitionInfo parcelable", arg.Type)
 	}
 }
 

@@ -209,6 +209,32 @@ parcelable Holder {
 	}
 }
 
+func TestParseMethodWithExplicitTransactionID(t *testing.T) {
+	src := `
+package demo;
+
+oneway interface IFoo {
+  void Ping() = 7;
+}
+`
+
+	file, err := Parse("txid.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	iface, ok := file.Decls[0].(*ast.InterfaceDecl)
+	if !ok {
+		t.Fatalf("decl type = %T, want *ast.InterfaceDecl", file.Decls[0])
+	}
+	method, ok := iface.Members[0].(*ast.MethodDecl)
+	if !ok {
+		t.Fatalf("member type = %T, want *ast.MethodDecl", iface.Members[0])
+	}
+	if method.Transaction != "7" {
+		t.Fatalf("method.Transaction = %q, want 7", method.Transaction)
+	}
+}
+
 func TestParseQualifiedParcelableForwardDeclaration(t *testing.T) {
 	src := `
 package android.app;
@@ -229,6 +255,61 @@ parcelable ActivityManager.MemoryInfo;
 	}
 	if decl.Name != "ActivityManager.MemoryInfo" {
 		t.Fatalf("decl.Name = %q, want ActivityManager.MemoryInfo", decl.Name)
+	}
+	if decl.Structured {
+		t.Fatal("decl.Structured = true, want false")
+	}
+}
+
+func TestParseGenericParcelableForwardDeclaration(t *testing.T) {
+	src := `
+package android.content.pm;
+
+parcelable ParceledListSlice<T>;
+`
+
+	file, err := Parse("parceled_list_slice.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("len(Decls) = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(*ast.ParcelableDecl)
+	if !ok {
+		t.Fatalf("decl type = %T, want *ast.ParcelableDecl", file.Decls[0])
+	}
+	if decl.Name != "ParceledListSlice" {
+		t.Fatalf("decl.Name = %q, want ParceledListSlice", decl.Name)
+	}
+	if len(decl.TypeParams) != 1 || decl.TypeParams[0] != "T" {
+		t.Fatalf("decl.TypeParams = %#v, want [T]", decl.TypeParams)
+	}
+	if decl.Structured {
+		t.Fatal("decl.Structured = true, want false")
+	}
+}
+
+func TestParseParcelableForwardDeclarationWithCppHeader(t *testing.T) {
+	src := `
+package android.os;
+
+parcelable WorkSource cpp_header "android/WorkSource.h";
+`
+
+	file, err := Parse("worksource.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("len(Decls) = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(*ast.ParcelableDecl)
+	if !ok {
+		t.Fatalf("decl type = %T, want *ast.ParcelableDecl", file.Decls[0])
+	}
+	if decl.Name != "WorkSource" {
+		t.Fatalf("decl.Name = %q, want WorkSource", decl.Name)
 	}
 	if decl.Structured {
 		t.Fatal("decl.Structured = true, want false")

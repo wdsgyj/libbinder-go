@@ -266,6 +266,180 @@ func TestGeneratedClientServerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRenderGoCompilesAndRunsWithMap(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("requires host go toolchain")
+	}
+
+	src := `
+package demo;
+
+parcelable Rule {
+  String id;
+}
+
+interface IMapService {
+  Map<String, Rule> GetRules();
+  Map<String, List<Rule>> GetBuckets();
+  Map GetRaw();
+}
+`
+
+	file, err := parser.Parse("IMapService.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	model, diags := gomodel.Lower(file, gomodel.LowerOptions{SourcePath: "IMapService.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v", diags)
+	}
+
+	outputs, err := RenderGo(model, GoOptions{})
+	if err != nil {
+		t.Fatalf("RenderGo: %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("len(outputs) = %d, want 1", len(outputs))
+	}
+
+	tmp := t.TempDir()
+	repoRoot := testRepoRoot(t)
+	goMod := `module example.com/generated
+
+go 1.22
+
+require github.com/wdsgyj/libbinder-go v0.0.0
+
+replace github.com/wdsgyj/libbinder-go => ` + repoRoot + `
+`
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod): %v", err)
+	}
+
+	outPath := filepath.Join(tmp, outputs[0].Path)
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(outPath, outputs[0].Content, 0o644); err != nil {
+		t.Fatalf("WriteFile(generated): %v", err)
+	}
+
+	testSrc := `package demo
+
+import (
+	"context"
+	"reflect"
+	"testing"
+
+	binder "github.com/wdsgyj/libbinder-go/binder"
+)
+
+type fakeBinder struct {
+	handler binder.Handler
+}
+
+func (b fakeBinder) Descriptor(ctx context.Context) (string, error) {
+	return b.handler.Descriptor(), nil
+}
+
+func (b fakeBinder) Transact(ctx context.Context, code uint32, data *binder.Parcel, flags binder.Flags) (*binder.Parcel, error) {
+	if err := data.SetPosition(0); err != nil {
+		return nil, err
+	}
+	reply, err := b.handler.HandleTransact(ctx, code, data)
+	if err != nil {
+		return nil, err
+	}
+	if reply != nil {
+		if err := reply.SetPosition(0); err != nil {
+			return nil, err
+		}
+	}
+	return reply, nil
+}
+
+func (b fakeBinder) WatchDeath(ctx context.Context) (binder.Subscription, error) {
+	return nil, binder.ErrUnsupported
+}
+
+func (b fakeBinder) Close() error { return nil }
+
+type mapServiceImpl struct{}
+
+func (mapServiceImpl) GetRules(ctx context.Context) (map[string]Rule, error) {
+	return map[string]Rule{
+		"one": {Id: "1"},
+		"two": {Id: "2"},
+	}, nil
+}
+
+func (mapServiceImpl) GetBuckets(ctx context.Context) (map[string][]Rule, error) {
+	return map[string][]Rule{
+		"alpha": {{Id: "a1"}, {Id: "a2"}},
+		"beta":  nil,
+	}, nil
+}
+
+func (mapServiceImpl) GetRaw(ctx context.Context) (map[any]any, error) {
+	return map[any]any{
+		"name": "demo",
+		"ids":  []any{int32(1), int64(2), "3"},
+		"meta": map[any]any{"enabled": true},
+	}, nil
+}
+
+func TestGeneratedMapRoundTrip(t *testing.T) {
+	client := NewIMapServiceClient(fakeBinder{handler: NewIMapServiceHandler(mapServiceImpl{})})
+
+	rules, err := client.GetRules(context.Background())
+	if err != nil {
+		t.Fatalf("GetRules: %v", err)
+	}
+	if !reflect.DeepEqual(rules, map[string]Rule{
+		"one": {Id: "1"},
+		"two": {Id: "2"},
+	}) {
+		t.Fatalf("rules = %#v", rules)
+	}
+
+	buckets, err := client.GetBuckets(context.Background())
+	if err != nil {
+		t.Fatalf("GetBuckets: %v", err)
+	}
+	if !reflect.DeepEqual(buckets, map[string][]Rule{
+		"alpha": {{Id: "a1"}, {Id: "a2"}},
+		"beta":  nil,
+	}) {
+		t.Fatalf("buckets = %#v", buckets)
+	}
+
+	raw, err := client.GetRaw(context.Background())
+	if err != nil {
+		t.Fatalf("GetRaw: %v", err)
+	}
+	if !reflect.DeepEqual(raw, map[any]any{
+		"name": "demo",
+		"ids":  []any{int32(1), int64(2), "3"},
+		"meta": map[any]any{"enabled": true},
+	}) {
+		t.Fatalf("raw = %#v", raw)
+	}
+}
+`
+
+	testPath := filepath.Join(tmp, "demo", "generated_map_test.go")
+	if err := os.WriteFile(testPath, []byte(testSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(generated_map_test.go): %v", err)
+	}
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test ./... failed: %v\n%s", err, out)
+	}
+}
+
 func TestRenderGoSanitizesKeywordArgumentNames(t *testing.T) {
 	src := `
 package demo;

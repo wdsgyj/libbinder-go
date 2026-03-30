@@ -30,6 +30,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	outDir := fs.String("out", "", "output directory for generated files when -format go")
 	typesPath := fs.String("types", "", "JSON sidecar for custom parcelable type mappings")
 	goImportRoot := fs.String("go-import-root", "", "module import root for generated Go packages")
+	rootsOnly := fs.Bool("roots-only", false, "generate only the requested root AIDL files in -format go mode")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -134,7 +135,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		var outputs []codegen.OutputFile
-		for _, path := range ordered {
+		pathsToGenerate := ordered
+		if *rootsOnly {
+			pathsToGenerate = rootPaths
+		}
+		for _, path := range pathsToGenerate {
 			model, diags := gomodel.Lower(files[path], gomodel.LowerOptions{
 				SourcePath:        path,
 				CustomParcelables: customParcelables,
@@ -265,6 +270,11 @@ func loadAIDLGraph(rootPaths []string) ([]string, map[string]*ast.File, error) {
 		ordered = append(ordered, path)
 		searchRoots = append(searchRoots, sourceRootsFor(path, file)...)
 		searchRoots = uniqueStrings(searchRoots)
+		for _, depPath := range resolveSamePackageRefs(path, file) {
+			if err := visit(depPath); err != nil {
+				return err
+			}
+		}
 		localRoots := uniqueStrings(append([]string{}, append(searchRoots, sourceRootsFor(path, file)...)...))
 		for _, imp := range file.Imports {
 			depPath, err := resolveImportFile(imp.Path, localRoots)
@@ -284,6 +294,106 @@ func loadAIDLGraph(rootPaths []string) ([]string, map[string]*ast.File, error) {
 		}
 	}
 	return ordered, files, nil
+}
+
+func resolveSamePackageRefs(path string, file *ast.File) []string {
+	if file == nil || file.PackageName == "" {
+		return nil
+	}
+	dir := filepath.Clean(filepath.Dir(path))
+	names := map[string]struct{}{}
+	collectSamePackageDeclRefs(file, names)
+	out := make([]string, 0, len(names))
+	for name := range names {
+		candidate := filepath.Join(dir, name+".aidl")
+		candidate = filepath.Clean(candidate)
+		if candidate == filepath.Clean(path) {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			out = append(out, candidate)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func collectSamePackageDeclRefs(file *ast.File, out map[string]struct{}) {
+	if file == nil {
+		return
+	}
+	for _, decl := range file.Decls {
+		collectDeclTypeRefs(decl, out)
+	}
+}
+
+func collectDeclTypeRefs(decl ast.Decl, out map[string]struct{}) {
+	switch d := decl.(type) {
+	case *ast.InterfaceDecl:
+		for _, member := range d.Members {
+			switch m := member.(type) {
+			case *ast.MethodDecl:
+				collectTypeRefName(m.Return, out)
+				for _, arg := range m.Args {
+					collectFieldTypeRefs(arg, out)
+				}
+			case *ast.ConstDecl:
+				collectTypeRefName(m.Type, out)
+			case *ast.ParcelableDecl:
+				collectDeclTypeRefs(m, out)
+			case *ast.EnumDecl:
+			case *ast.UnionDecl:
+				collectDeclTypeRefs(m, out)
+			}
+		}
+	case *ast.ParcelableDecl:
+		for _, c := range d.Consts {
+			collectTypeRefName(c.Type, out)
+		}
+		for _, field := range d.Fields {
+			collectFieldTypeRefs(field, out)
+		}
+		for _, nested := range d.Decls {
+			collectDeclTypeRefs(nested, out)
+		}
+	case *ast.UnionDecl:
+		for _, field := range d.Fields {
+			collectFieldTypeRefs(field, out)
+		}
+	}
+}
+
+func collectFieldTypeRefs(field ast.Field, out map[string]struct{}) {
+	collectTypeRefName(field.Type, out)
+}
+
+func collectTypeRefName(ref ast.TypeRef, out map[string]struct{}) {
+	if out == nil {
+		return
+	}
+	for _, arg := range ref.TypeArgs {
+		collectTypeRefName(arg, out)
+	}
+	if ref.Name == "" || isBuiltinTypeRef(ref.Name) {
+		return
+	}
+	name := ref.Name
+	if idx := strings.IndexByte(name, '.'); idx >= 0 {
+		name = name[:idx]
+	}
+	if name != "" {
+		out[name] = struct{}{}
+	}
+}
+
+func isBuiltinTypeRef(name string) bool {
+	switch name {
+	case "void", "boolean", "byte", "char", "int", "long", "float", "double",
+		"String", "IBinder", "FileDescriptor", "ParcelFileDescriptor", "List":
+		return true
+	default:
+		return false
+	}
 }
 
 func sourceRootsFor(path string, file *ast.File) []string {
@@ -314,11 +424,14 @@ func hasPathSuffix(path string, suffix string) bool {
 }
 
 func resolveImportFile(importPath string, searchRoots []string) (string, error) {
-	rel := filepath.Join(strings.Split(importPath, ".")...) + ".aidl"
 	for _, root := range searchRoots {
-		candidate := filepath.Clean(filepath.Join(root, rel))
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+		parts := strings.Split(importPath, ".")
+		for i := len(parts); i >= 1; i-- {
+			rel := filepath.Join(parts[:i]...) + ".aidl"
+			candidate := filepath.Clean(filepath.Join(root, rel))
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("not found under search roots %v", searchRoots)

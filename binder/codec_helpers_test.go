@@ -2,6 +2,7 @@ package binder
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -91,5 +92,59 @@ func TestReadFixedSliceWrongLength(t *testing.T) {
 	})
 	if !errors.Is(err, ErrBadParcelable) {
 		t.Fatalf("ReadFixedSlice error = %v, want ErrBadParcelable", err)
+	}
+}
+
+func TestWriteReadMap(t *testing.T) {
+	p := NewParcel()
+
+	if err := WriteMap(p, map[string]int32{"a": 1, "b": 2}, func(p *Parcel, value string) error {
+		return p.WriteString(value)
+	}, func(p *Parcel, value int32) error {
+		return p.WriteInt32(value)
+	}); err != nil {
+		t.Fatalf("WriteMap: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := ReadMap(p, func(p *Parcel) (string, error) {
+		return p.ReadString()
+	}, func(p *Parcel) (int32, error) {
+		return p.ReadInt32()
+	})
+	if err != nil {
+		t.Fatalf("ReadMap: %v", err)
+	}
+	if !reflect.DeepEqual(got, map[string]int32{"a": 1, "b": 2}) {
+		t.Fatalf("ReadMap = %#v, want %#v", got, map[string]int32{"a": 1, "b": 2})
+	}
+}
+
+func TestWriteReadDynamicValueNestedMap(t *testing.T) {
+	p := NewParcel()
+	want := map[any]any{
+		"name": "demo",
+		"ids":  []any{int32(1), int64(2), "3"},
+		"meta": map[any]any{
+			"enabled": true,
+			"score":   float64(7.5),
+		},
+	}
+
+	if err := WriteDynamicValue(p, want); err != nil {
+		t.Fatalf("WriteDynamicValue: %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	got, err := ReadDynamicValue(p)
+	if err != nil {
+		t.Fatalf("ReadDynamicValue: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ReadDynamicValue = %#v, want %#v", got, want)
 	}
 }

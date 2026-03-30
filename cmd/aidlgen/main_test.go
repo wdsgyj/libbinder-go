@@ -186,6 +186,134 @@ func TestRunGoLoadsImportedDependencyFiles(t *testing.T) {
 	}
 }
 
+func TestRunGoLoadsNestedImportedDependencyFile(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	optionsPath := filepath.Join(pkgDir, "Options.aidl")
+	servicePath := filepath.Join(pkgDir, "IService.aidl")
+	outDir := filepath.Join(dir, "out")
+
+	optionsSrc := `package demo; parcelable Options.SceneInfo;`
+	serviceSrc := `package demo; import demo.Options.SceneInfo; interface IService { void Ping(in SceneInfo info); }`
+
+	if err := os.WriteFile(optionsPath, []byte(optionsSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(options): %v", err)
+	}
+	if err := os.WriteFile(servicePath, []byte(serviceSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(service): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"-format", "go", "-out", outDir, servicePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "options_aidl.go")); err != nil {
+		t.Fatalf("Stat(options_aidl.go): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "iservice_aidl.go")); err != nil {
+		t.Fatalf("Stat(iservice_aidl.go): %v", err)
+	}
+}
+
+func TestRunGoRootsOnlySkipsImportedOutputs(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	callbackPath := filepath.Join(pkgDir, "ICallback.aidl")
+	servicePath := filepath.Join(pkgDir, "IService.aidl")
+	outDir := filepath.Join(dir, "out")
+
+	callbackSrc := `package demo; interface ICallback { void Ping(); }`
+	serviceSrc := `package demo; import demo.ICallback; interface IService { ICallback Bind(); }`
+
+	if err := os.WriteFile(callbackPath, []byte(callbackSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(callback): %v", err)
+	}
+	if err := os.WriteFile(servicePath, []byte(serviceSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(service): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"-format", "go", "-roots-only", "-out", outDir, servicePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "iservice_aidl.go")); err != nil {
+		t.Fatalf("Stat(iservice_aidl.go): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "icallback_aidl.go")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(icallback_aidl.go) err = %v, want not exist", err)
+	}
+}
+
+func TestRunGoLoadsSamePackageSiblingDependencyFiles(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	parcelPath := filepath.Join(pkgDir, "Payload.aidl")
+	servicePath := filepath.Join(pkgDir, "IService.aidl")
+	outDir := filepath.Join(dir, "out")
+
+	parcelSrc := `package demo; parcelable Payload { int id; }`
+	serviceSrc := `package demo; interface IService { Payload Echo(in Payload value); }`
+
+	if err := os.WriteFile(parcelPath, []byte(parcelSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(parcel): %v", err)
+	}
+	if err := os.WriteFile(servicePath, []byte(serviceSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(service): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"-format", "go", "-out", outDir, servicePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "payload_aidl.go")); err != nil {
+		t.Fatalf("Stat(payload_aidl.go): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "demo", "iservice_aidl.go")); err != nil {
+		t.Fatalf("Stat(iservice_aidl.go): %v", err)
+	}
+}
+
+func TestRunGoFallsBackToOpaqueParcelableForForwardDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "demo.aidl")
+	src := `package demo; parcelable Payload; interface IFoo { Payload Echo(in Payload value); }`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"-format", "go", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "type Payload struct") || !strings.Contains(out, "RawData []byte") {
+		t.Fatalf("stdout = %s, want opaque parcelable fallback", out)
+	}
+}
+
 func TestRunGoAOSPBinderCorpus(t *testing.T) {
 	corpus := aospBinderCorpusFiles(t)
 	if len(corpus) == 0 {

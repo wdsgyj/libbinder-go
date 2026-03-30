@@ -6,6 +6,16 @@
 
 ### Added
 
+- 增加 Android emulator AIDL 基础兼容矩阵：
+  - `scripts/android-aidl-basic-cases.sh`
+  - 覆盖 Java server -> Go client 与 Go server -> Java client
+  - 覆盖 baseline、nullable string、`int[]`、固定数组、`List<String>`、`List<Parcelable>`、`Map<String,String>`、`Map<String,Parcelable>`、enum、union、structured parcelable、复杂 parcelable 的 return / `out` / `inout`
+- 增加基础矩阵共享 fixture：
+  - `tests/aidl/android/shared/src/main/aidl/.../IBasicMatrixService.aidl`
+  - `BasicBundle.aidl`
+  - `BasicMode.aidl`
+  - `BasicUnion.aidl`
+  - Java/Go 双端 fixture client/server 与共享断言 helper
 - 增加 Binder 协议兼容审计文档：
   - `doc/binder-protocol-compatibility-audit.md`
   - 梳理 ABI 常量、动态字段、当前风险点与回归矩阵
@@ -46,6 +56,17 @@
 
 ### Changed
 
+- AIDL Go codegen 现在对 Java AIDL typed-object 语义对齐更完整：
+  - 同步方法参数/返回值
+  - `out` / `inout`
+  - structured parcelable 字段
+  - `List<Parcelable>`
+  - `Map<String,Parcelable>`
+  - union parcelable 分支
+- 结构化 parcelable 现在按 Java AIDL 真实 size-prefixed 格式编解码
+- union tag 编号现在与 Java AIDL 对齐，从 `0` 开始
+- Android fixture Gradle 构建现在固定使用 `build-tools 35.0.1`
+  - 使 enum / union / fixed array 等 AIDL 语法可用于测试工程
 - `binder.Parcel.ReadInterfaceToken()` 现在按 AOSP 实际语义读取 request header：
   - 不再把 `strictMode` 与 `workSourceUid` 当作固定值校验
   - 修复 framework callback 在真机上的误判坏 Parcel 问题
@@ -81,6 +102,8 @@
 
 ### Verification
 
+- Android aarch64 emulator：
+  - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-basic-cases.sh`
 - Android arm64 构建：
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-cmd ./cmd/cmd`
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-service ./cmd/service`

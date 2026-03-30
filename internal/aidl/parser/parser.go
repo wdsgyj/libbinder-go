@@ -201,6 +201,14 @@ func (p *Parser) parseMethodDecl(annotations []ast.Annotation) (*ast.MethodDecl,
 	if err := p.expect(")"); err != nil {
 		return nil, err
 	}
+	transaction := ""
+	if p.match("=") {
+		p.next()
+		transaction, err = p.parseExpression(";")
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := p.expect(";"); err != nil {
 		return nil, err
 	}
@@ -211,6 +219,7 @@ func (p *Parser) parseMethodDecl(annotations []ast.Annotation) (*ast.MethodDecl,
 		Return:      ret,
 		Name:        name,
 		Args:        args,
+		Transaction: transaction,
 	}, nil
 }
 
@@ -251,6 +260,18 @@ func (p *Parser) parseParcelableDecl(annotations []ast.Annotation) (*ast.Parcela
 	decl := &ast.ParcelableDecl{
 		Annotations: annotations,
 		Name:        name,
+	}
+	if p.match("<") {
+		params, err := p.parseTypeParamNames()
+		if err != nil {
+			return nil, err
+		}
+		decl.TypeParams = params
+	}
+	if !p.match(";") && !p.match("{") {
+		if _, err := p.parseExpression(";", "{"); err != nil {
+			return nil, err
+		}
 	}
 	if p.match(";") {
 		p.next()
@@ -305,6 +326,30 @@ func (p *Parser) parseParcelableDecl(annotations []ast.Annotation) (*ast.Parcela
 		return nil, err
 	}
 	return decl, nil
+}
+
+func (p *Parser) parseTypeParamNames() ([]string, error) {
+	if err := p.expect("<"); err != nil {
+		return nil, err
+	}
+	var params []string
+	for {
+		name, err := p.parseName()
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, name)
+		if p.match(">") {
+			break
+		}
+		if err := p.expect(","); err != nil {
+			return nil, err
+		}
+	}
+	if err := p.expect(">"); err != nil {
+		return nil, err
+	}
+	return params, nil
 }
 
 func (p *Parser) parseEnumDecl(annotations []ast.Annotation) (*ast.EnumDecl, error) {

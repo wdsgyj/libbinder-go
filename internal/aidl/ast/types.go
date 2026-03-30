@@ -68,6 +68,7 @@ type MethodDecl struct {
 	Return      TypeRef      `json:"return"`
 	Name        string       `json:"name"`
 	Args        []Field      `json:"args,omitempty"`
+	Transaction string       `json:"transaction,omitempty"`
 }
 
 func (*MethodDecl) interfaceMemberNode() {}
@@ -84,6 +85,7 @@ func (*ConstDecl) interfaceMemberNode() {}
 type ParcelableDecl struct {
 	Annotations []Annotation `json:"annotations,omitempty"`
 	Name        string       `json:"name"`
+	TypeParams  []string     `json:"type_params,omitempty"`
 	Structured  bool         `json:"structured,omitempty"`
 	Consts      []ConstDecl  `json:"consts,omitempty"`
 	Fields      []Field      `json:"fields,omitempty"`

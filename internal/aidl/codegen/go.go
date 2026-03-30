@@ -131,12 +131,6 @@ func (r *goRenderer) render() ([]byte, error) {
 func (r *goRenderer) validate() error {
 	for _, p := range r.model.Parcelables {
 		if !p.Structured {
-			if p.Custom == nil {
-				if r.typeMappingsPath != "" {
-					return fmt.Errorf("custom parcelable %s has no sidecar mapping in %s", p.AIDLName, r.typeMappingsPath)
-				}
-				return fmt.Errorf("custom parcelable %s has no sidecar mapping", p.AIDLName)
-			}
 			continue
 		}
 		for _, c := range p.Consts {
@@ -216,6 +210,20 @@ func (r *goRenderer) validateTypeUsage(typ *gomodel.Type, allowBinderObjects boo
 		return nil
 	case gomodel.TypeSlice, gomodel.TypeArray:
 		return r.validateTypeUsage(typ.Elem, allowBinderObjects)
+	case gomodel.TypeMap:
+		if typ.Key == nil || typ.Value == nil {
+			return fmt.Errorf("map type %q is missing key/value type", typ.GoExpr)
+		}
+		if typ.GoExpr == "map[any]any" {
+			return nil
+		}
+		if !r.isValidMapKeyType(typ.Key) {
+			return fmt.Errorf("unsupported map key type %q", r.typeExpr(typ.Key))
+		}
+		if err := r.validateTypeUsage(typ.Key, allowBinderObjects); err != nil {
+			return err
+		}
+		return r.validateTypeUsage(typ.Value, allowBinderObjects)
 	case gomodel.TypeInterface, gomodel.TypeBinder:
 		return nil
 	case gomodel.TypeExternal:
@@ -236,7 +244,7 @@ func (r *goRenderer) imports() []importSpec {
 	if len(r.model.Interfaces) != 0 {
 		add("context", "")
 	}
-	if len(r.model.Interfaces) != 0 || len(r.model.Unions) != 0 {
+	if r.needsFmtImport() {
 		add("fmt", "")
 	}
 	if r.hasStableInterfaces() {
@@ -286,6 +294,18 @@ func (r *goRenderer) imports() []importSpec {
 	return imports
 }
 
+func (r *goRenderer) needsFmtImport() bool {
+	if len(r.model.Interfaces) != 0 || len(r.model.Unions) != 0 {
+		return true
+	}
+	for _, p := range r.model.Parcelables {
+		if p.Custom == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *goRenderer) addTypeImports(set map[string]importSpec, typ *gomodel.Type) {
 	if typ == nil {
 		return
@@ -293,6 +313,9 @@ func (r *goRenderer) addTypeImports(set map[string]importSpec, typ *gomodel.Type
 	switch typ.Kind {
 	case gomodel.TypeSlice, gomodel.TypeArray:
 		r.addTypeImports(set, typ.Elem)
+	case gomodel.TypeMap:
+		r.addTypeImports(set, typ.Key)
+		r.addTypeImports(set, typ.Value)
 	case gomodel.TypeParcelable:
 		if cfg, ok := r.customParcelables[typ.AIDLName]; ok && cfg.GoPackage != "" {
 			alias := customImportAlias(cfg.GoPackage)
@@ -383,6 +406,8 @@ func (r *goRenderer) requiresGeneratedImports() bool {
 		switch typ.Kind {
 		case gomodel.TypeSlice, gomodel.TypeArray:
 			return check(typ.Elem)
+		case gomodel.TypeMap:
+			return check(typ.Key) || check(typ.Value)
 		case gomodel.TypeParcelable, gomodel.TypeEnum, gomodel.TypeUnion, gomodel.TypeInterface:
 			if _, _, ok := r.customParcelableConfig(typ); ok {
 				return false
@@ -475,6 +500,11 @@ func (r *goRenderer) typeExpr(typ *gomodel.Type) string {
 		return "[]" + r.typeExpr(typ.Elem)
 	case gomodel.TypeArray:
 		return fmt.Sprintf("[%d]%s", typ.FixedLen, r.typeExpr(typ.Elem))
+	case gomodel.TypeMap:
+		if typ.Key == nil || typ.Value == nil {
+			return "map[any]any"
+		}
+		return fmt.Sprintf("map[%s]%s", r.typeExpr(typ.Key), r.typeExpr(typ.Value))
 	case gomodel.TypeParcelable:
 		if cfg, alias, ok := r.customParcelableConfig(typ); ok {
 			name := alias + "." + cfg.GoType
@@ -543,6 +573,8 @@ func (r *goRenderer) zeroExpr(typ *gomodel.Type) string {
 		return "*new(" + r.typeExpr(typ) + ")"
 	case gomodel.TypeSlice:
 		return "nil"
+	case gomodel.TypeMap:
+		return "nil"
 	case gomodel.TypeInterface, gomodel.TypeBinder:
 		return "nil"
 	default:
@@ -554,6 +586,234 @@ func (r *goRenderer) zeroExpr(typ *gomodel.Type) string {
 		}
 		return r.typeExpr(typ) + "{}"
 	}
+}
+
+func (r *goRenderer) isRawMapType(typ *gomodel.Type) bool {
+	return typ != nil && typ.Kind == gomodel.TypeMap && typ.GoExpr == "map[any]any"
+}
+
+func (r *goRenderer) isValidMapKeyType(typ *gomodel.Type) bool {
+	if typ == nil {
+		return false
+	}
+	switch typ.Kind {
+	case gomodel.TypeBool, gomodel.TypeByte, gomodel.TypeChar, gomodel.TypeInt32, gomodel.TypeInt64, gomodel.TypeFloat32, gomodel.TypeFloat64, gomodel.TypeString, gomodel.TypeEnum, gomodel.TypeBinder, gomodel.TypeInterface:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *goRenderer) nonNullableType(typ *gomodel.Type) *gomodel.Type {
+	if typ == nil {
+		return nil
+	}
+	copy := *typ
+	copy.Nullable = false
+	return &copy
+}
+
+func (r *goRenderer) dynamicWriteExpr(parcel string, value string, typ *gomodel.Type, registrar string) string {
+	if typ == nil {
+		return `fmt.Errorf("%w: nil dynamic type", binder.ErrBadParcelable)`
+	}
+	switch typ.Kind {
+	case gomodel.TypeBool:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueBoolean", fmt.Sprintf("%s.WriteBool(%s)", parcel, value))
+	case gomodel.TypeByte:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueByte", fmt.Sprintf("%s.WriteInt32(int32(%s))", parcel, value))
+	case gomodel.TypeChar:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueChar", fmt.Sprintf("%s.WriteInt32(int32(%s))", parcel, value))
+	case gomodel.TypeInt32:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueInteger", fmt.Sprintf("%s.WriteInt32(%s)", parcel, value))
+	case gomodel.TypeInt64:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueLong", fmt.Sprintf("%s.WriteInt64(%s)", parcel, value))
+	case gomodel.TypeFloat32:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueFloat", fmt.Sprintf("%s.WriteFloat32(%s)", parcel, value))
+	case gomodel.TypeFloat64:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueDouble", fmt.Sprintf("%s.WriteFloat64(%s)", parcel, value))
+	case gomodel.TypeString:
+		if typ.Nullable {
+			return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return %s.WriteInt32(int32(binder.ValueNull))
+	}
+	if err := %s.WriteInt32(int32(binder.ValueString)); err != nil {
+		return err
+	}
+	return %s.WriteString(*%s)
+}()`, value, parcel, parcel, parcel, value)
+		}
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueString", fmt.Sprintf("%s.WriteString(%s)", parcel, value))
+	case gomodel.TypeEnum:
+		return r.dynamicTaggedWriteExpr(parcel, "binder.ValueInteger", r.writeExpr(parcel, value, typ, registrar))
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
+		base := r.nonNullableType(typ)
+		payloadValue := value
+		nullCheck := ""
+		nullReturn := ""
+		if typ.Nullable {
+			payloadValue = "*" + value
+			nullCheck = fmt.Sprintf("if %s == nil {\n\t\treturn %s.WriteInt32(int32(binder.ValueNull))\n\t}\n\t", value, parcel)
+		}
+		nullReturn = fmt.Sprintf(`func() error {
+	%sif err := %s.WriteInt32(int32(binder.ValueParcelable)); err != nil {
+		return err
+	}
+	if err := %s.WriteString(%q); err != nil {
+		return err
+	}
+	return %s
+}()`, nullCheck, parcel, parcel, typ.AIDLName, r.writeExpr(parcel, payloadValue, base, registrar))
+		return nullReturn
+	case gomodel.TypeBinder, gomodel.TypeInterface:
+		return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return %s.WriteInt32(int32(binder.ValueNull))
+	}
+	if err := %s.WriteInt32(int32(binder.ValueIBinder)); err != nil {
+		return err
+	}
+	return %s
+}()`, value, parcel, parcel, r.writeExpr(parcel, value, typ, registrar))
+	case gomodel.TypeMap:
+		return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return %s.WriteInt32(int32(binder.ValueNull))
+	}
+	if err := %s.WriteInt32(int32(binder.ValueMap)); err != nil {
+		return err
+	}
+	return %s
+}()`, value, parcel, parcel, r.writeExpr(parcel, value, typ, registrar))
+	case gomodel.TypeSlice:
+		if !typ.IsList {
+			return fmt.Sprintf(`fmt.Errorf("%%w: dynamic arrays are not implemented for %s", binder.ErrUnsupported)`, r.typeExpr(typ))
+		}
+		return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return %s.WriteInt32(int32(binder.ValueNull))
+	}
+	if err := %s.WriteInt32(int32(binder.ValueList)); err != nil {
+		return err
+	}
+	return binder.WriteSlice(%s, %s, func(p *binder.Parcel, item %s) error { return %s })
+}()`, value, parcel, parcel, parcel, value, r.typeExpr(typ.Elem), r.dynamicWriteExpr("p", "item", typ.Elem, registrar))
+	default:
+		return fmt.Sprintf(`fmt.Errorf("%%w: unsupported dynamic type %s", binder.ErrUnsupported)`, r.typeExpr(typ))
+	}
+}
+
+func (r *goRenderer) dynamicReadExpr(parcel string, typ *gomodel.Type) string {
+	if typ == nil {
+		return `func() (any, error) { return nil, binder.ErrBadParcelable }()`
+	}
+	switch typ.Kind {
+	case gomodel.TypeBool:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueBoolean", fmt.Sprintf("%s.ReadBool()", parcel), false, "")
+	case gomodel.TypeByte:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueByte", fmt.Sprintf(`func() (%s, error) {
+	value, err := %s.ReadInt32()
+	return %s(value), err
+}()`, r.typeExpr(typ), parcel, r.typeExpr(typ)), false, "")
+	case gomodel.TypeChar:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueChar", fmt.Sprintf(`func() (%s, error) {
+	value, err := %s.ReadInt32()
+	return %s(value), err
+}()`, r.typeExpr(typ), parcel, r.typeExpr(typ)), false, "")
+	case gomodel.TypeInt32:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueInteger", fmt.Sprintf("%s.ReadInt32()", parcel), false, "")
+	case gomodel.TypeInt64:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueLong", fmt.Sprintf("%s.ReadInt64()", parcel), false, "")
+	case gomodel.TypeFloat32:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueFloat", fmt.Sprintf("%s.ReadFloat32()", parcel), false, "")
+	case gomodel.TypeFloat64:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueDouble", fmt.Sprintf("%s.ReadFloat64()", parcel), false, "")
+	case gomodel.TypeString:
+		body := fmt.Sprintf("%s.ReadString()", parcel)
+		if typ.Nullable {
+			body = fmt.Sprintf(`func() (*string, error) {
+	value, err := %s.ReadString()
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}()`, parcel)
+			return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueString", body, true, "nil")
+		}
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueString", body, false, "")
+	case gomodel.TypeEnum:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueInteger", r.readExpr(parcel, typ), false, "")
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
+		base := r.nonNullableType(typ)
+		body := r.readExpr(parcel, base)
+		if typ.Nullable {
+			body = fmt.Sprintf(`func() (*%s, error) {
+	if _, err := %s.ReadString(); err != nil {
+		return nil, err
+	}
+	value, err := %s
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}()`, r.typeExpr(base), parcel, body)
+			return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueParcelable", body, true, "nil")
+		}
+		body = fmt.Sprintf(`func() (%s, error) {
+	if _, err := %s.ReadString(); err != nil {
+		return %s, err
+	}
+	return %s
+}()`, r.typeExpr(base), parcel, r.zeroExpr(base), body)
+		return r.dynamicReadTaggedExpr(parcel, base, "binder.ValueParcelable", body, false, "")
+	case gomodel.TypeBinder, gomodel.TypeInterface:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueIBinder", r.readExpr(parcel, typ), true, "nil")
+	case gomodel.TypeMap:
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueMap", r.readExpr(parcel, typ), true, "nil")
+	case gomodel.TypeSlice:
+		if !typ.IsList {
+			return fmt.Sprintf(`func() (%s, error) { return %s, fmt.Errorf("%%w: dynamic arrays are not implemented for %s", binder.ErrUnsupported) }()`, r.typeExpr(typ), r.zeroExpr(typ), r.typeExpr(typ))
+		}
+		body := fmt.Sprintf("binder.ReadSlice(%s, func(p *binder.Parcel) (%s, error) { return %s })", parcel, r.typeExpr(typ.Elem), r.dynamicReadExpr("p", typ.Elem))
+		return r.dynamicReadTaggedExpr(parcel, typ, "binder.ValueList", body, true, "nil")
+	default:
+		return fmt.Sprintf(`func() (%s, error) { return %s, fmt.Errorf("%%w: unsupported dynamic type %s", binder.ErrUnsupported) }()`, r.typeExpr(typ), r.zeroExpr(typ), r.typeExpr(typ))
+	}
+}
+
+func (r *goRenderer) dynamicTaggedWriteExpr(parcel string, tag string, body string) string {
+	return fmt.Sprintf(`func() error {
+	if err := %s.WriteInt32(int32(%s)); err != nil {
+		return err
+	}
+	return %s
+}()`, parcel, tag, body)
+}
+
+func (r *goRenderer) dynamicReadTaggedExpr(parcel string, typ *gomodel.Type, tag string, body string, allowNull bool, nullValue string) string {
+	if typ == nil {
+		return `func() (any, error) { return nil, binder.ErrBadParcelable }()`
+	}
+	if nullValue == "" {
+		nullValue = r.zeroExpr(typ)
+	}
+	nullCase := ""
+	if allowNull {
+		nullCase = fmt.Sprintf("case binder.ValueNull:\n\t\treturn %s, nil\n\t", nullValue)
+	}
+	return fmt.Sprintf(`func() (%s, error) {
+	tagValue, err := %s.ReadInt32()
+	if err != nil {
+		return %s, err
+	}
+	switch binder.ValueTag(tagValue) {
+	case %s:
+		return %s
+	%sdefault:
+		return %s, fmt.Errorf("%%w: unexpected value tag %%d for %s", binder.ErrBadParcelable, tagValue)
+	}
+}()`, r.typeExpr(typ), parcel, r.zeroExpr(typ), tag, body, nullCase, r.zeroExpr(typ), r.typeExpr(typ))
 }
 
 func (r *goRenderer) renderEnum(enum *gomodel.Enum) {
@@ -640,8 +900,12 @@ func (r *goRenderer) renderParcelFileDescriptorHelpers() {
 }
 
 func (r *goRenderer) renderParcelable(p *gomodel.Parcelable) {
-	if !p.Structured && p.Custom != nil {
-		r.renderCustomParcelable(p)
+	if !p.Structured {
+		if p.Custom != nil {
+			r.renderCustomParcelable(p)
+			return
+		}
+		r.renderOpaqueParcelable(p)
 		return
 	}
 
@@ -683,40 +947,80 @@ func (r *goRenderer) renderParcelable(p *gomodel.Parcelable) {
 		r.linef("}")
 		r.linef("")
 		r.linef("func write%sToParcelWithRegistrar(p *binder.Parcel, registrar binder.LocalHandlerRegistrar, v %s) error {", p.GoName, p.GoName)
+		r.linef("\tstartPos := p.Position()")
+		r.linef("\tif err := p.WriteInt32(0); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
 		for _, field := range p.Fields {
-			r.linef("\tif err := %s; err != nil {", r.writeExpr("p", "v."+field.GoName, field.Type, "registrar"))
+			r.linef("\tif err := %s; err != nil {", r.contextWriteExpr("p", "v."+field.GoName, field.Type, "registrar"))
 			r.linef("\t\treturn err")
 			r.linef("\t}")
 		}
-		r.linef("\treturn nil")
+		r.linef("\tendPos := p.Position()")
+		r.linef("\tif err := p.SetPosition(startPos); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
+		r.linef("\tif err := p.WriteInt32(int32(endPos - startPos)); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
+		r.linef("\treturn p.SetPosition(endPos)")
 		r.linef("}")
 		r.linef("")
 	} else {
 		r.linef("func write%sToParcel(p *binder.Parcel, v %s) error {", p.GoName, p.GoName)
+		r.linef("\tstartPos := p.Position()")
+		r.linef("\tif err := p.WriteInt32(0); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
 		for _, field := range p.Fields {
-			r.linef("\tif err := %s; err != nil {", r.writeExpr("p", "v."+field.GoName, field.Type, ""))
+			r.linef("\tif err := %s; err != nil {", r.contextWriteExpr("p", "v."+field.GoName, field.Type, ""))
 			r.linef("\t\treturn err")
 			r.linef("\t}")
 		}
-		r.linef("\treturn nil")
+		r.linef("\tendPos := p.Position()")
+		r.linef("\tif err := p.SetPosition(startPos); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
+		r.linef("\tif err := p.WriteInt32(int32(endPos - startPos)); err != nil {")
+		r.linef("\t\treturn err")
+		r.linef("\t}")
+		r.linef("\treturn p.SetPosition(endPos)")
 		r.linef("}")
 		r.linef("")
 	}
 
-	r.linef("func read%sFromParcel(p *binder.Parcel) (%s, error) {", p.GoName, p.GoName)
+	r.linef("func read%sFromParcel(p *binder.Parcel) (ret %s, err error) {", p.GoName, p.GoName)
 	if hasDefaultFields(p.Fields) {
-		r.linef("\tv := New%s()", p.GoName)
-	} else {
-		r.linef("\tvar v %s", p.GoName)
+		r.linef("\tret = New%s()", p.GoName)
 	}
+	r.linef("\tstartPos := p.Position()")
+	r.linef("\tparcelableSize, err := p.ReadInt32()")
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn ret, err")
+	r.linef("\t}")
+	r.linef("\tif parcelableSize < 0 {")
+	r.linef("\t\treturn ret, nil")
+	r.linef("\t}")
+	r.linef("\tendPos := startPos + int(parcelableSize)")
+	r.linef("\tif endPos < startPos || endPos > p.Len() {")
+	r.linef("\t\treturn ret, fmt.Errorf(\"%w: invalid parcelable size %d\", binder.ErrBadParcelable, parcelableSize)")
+	r.linef("\t}")
+	r.linef("\tdefer func() {")
+	r.linef("\t\tif setErr := p.SetPosition(endPos); err == nil && setErr != nil {")
+	r.linef("\t\t\terr = setErr")
+	r.linef("\t\t}")
+	r.linef("\t}()")
 	for _, field := range p.Fields {
-		r.linef("\t%sValue, err := %s", lowerFirst(field.GoName), r.readExpr("p", field.Type))
+		r.linef("\t%sValue, err := %s", lowerFirst(field.GoName), r.contextReadExpr("p", field.Type))
 		r.linef("\tif err != nil {")
-		r.linef("\t\treturn %s{}, err", p.GoName)
+		r.linef("\t\treturn ret, err")
 		r.linef("\t}")
-		r.linef("\tv.%s = %sValue", field.GoName, lowerFirst(field.GoName))
+		r.linef("\tret.%s = %sValue", field.GoName, lowerFirst(field.GoName))
+		r.linef("\tif p.Position()-startPos >= int(parcelableSize) {")
+		r.linef("\t\treturn ret, nil")
+		r.linef("\t}")
 	}
-	r.linef("\treturn v, nil")
+	r.linef("\treturn ret, nil")
 	r.linef("}")
 	r.linef("")
 
@@ -764,6 +1068,64 @@ func (r *goRenderer) renderParcelable(p *gomodel.Parcelable) {
 	r.linef("}")
 	r.linef("")
 	r.renderParcelableExports(p, needsRegistrar)
+}
+
+func (r *goRenderer) renderOpaqueParcelable(p *gomodel.Parcelable) {
+	r.linef("type %s struct {", p.GoName)
+	r.linef("\tRawData []byte")
+	r.linef("}")
+	r.linef("")
+	r.linef("func write%sToParcel(p *binder.Parcel, v %s) error {", p.GoName, p.GoName)
+	r.linef("\tif len(v.RawData) > int(^uint32(0)>>1) {")
+	r.linef("\t\treturn fmt.Errorf(\"%%w: opaque parcelable payload too large: %%d\", binder.ErrBadParcelable, len(v.RawData))")
+	r.linef("\t}")
+	r.linef("\tif err := p.WriteInt32(int32(len(v.RawData))); err != nil {")
+	r.linef("\t\treturn err")
+	r.linef("\t}")
+	r.linef("\treturn p.WriteRawBytes(v.RawData)")
+	r.linef("}")
+	r.linef("")
+	r.linef("func read%sFromParcel(p *binder.Parcel) (%s, error) {", p.GoName, p.GoName)
+	r.linef("\tsize, err := p.ReadInt32()")
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn %s{}, err", p.GoName)
+	r.linef("\t}")
+	r.linef("\tif size < 0 {")
+	r.linef("\t\treturn %s{}, fmt.Errorf(\"%%w: negative opaque parcelable size %%d\", binder.ErrBadParcelable, size)", p.GoName)
+	r.linef("\t}")
+	r.linef("\traw, err := p.ReadRawBytes(int(size))")
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn %s{}, err", p.GoName)
+	r.linef("\t}")
+	r.linef("\treturn %s{RawData: raw}, nil", p.GoName)
+	r.linef("}")
+	r.linef("")
+	r.linef("func writeNullable%sToParcel(p *binder.Parcel, v *%s) error {", p.GoName, p.GoName)
+	r.linef("\tif v == nil {")
+	r.linef("\t\treturn p.WriteInt32(0)")
+	r.linef("\t}")
+	r.linef("\tif err := p.WriteInt32(1); err != nil {")
+	r.linef("\t\treturn err")
+	r.linef("\t}")
+	r.linef("\treturn write%sToParcel(p, *v)", p.GoName)
+	r.linef("}")
+	r.linef("")
+	r.linef("func readNullable%sFromParcel(p *binder.Parcel) (*%s, error) {", p.GoName, p.GoName)
+	r.linef("\tpresent, err := p.ReadInt32()")
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn nil, err")
+	r.linef("\t}")
+	r.linef("\tif present == 0 {")
+	r.linef("\t\treturn nil, nil")
+	r.linef("\t}")
+	r.linef("\tv, err := read%sFromParcel(p)", p.GoName)
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn nil, err")
+	r.linef("\t}")
+	r.linef("\treturn &v, nil")
+	r.linef("}")
+	r.linef("")
+	r.renderParcelableExports(p, false)
 }
 
 func (r *goRenderer) renderCustomParcelable(p *gomodel.Parcelable) {
@@ -903,7 +1265,7 @@ func (r *goRenderer) renderUnion(u *gomodel.Union) {
 	r.linef("")
 	r.linef("const (")
 	for i, field := range u.Fields {
-		r.linef("\t%sTag%s %s = %d", u.GoName, field.GoName, tagType, i+1)
+		r.linef("\t%sTag%s %s = %d", u.GoName, field.GoName, tagType, i)
 	}
 	r.linef(")")
 	r.linef("")
@@ -928,7 +1290,7 @@ func (r *goRenderer) renderUnion(u *gomodel.Union) {
 		r.linef("\tswitch v.Tag {")
 		for _, field := range u.Fields {
 			r.linef("\tcase %sTag%s:", u.GoName, field.GoName)
-			r.linef("\t\treturn %s", r.writeExpr("p", "v."+field.GoName, field.Type, "registrar"))
+			r.linef("\t\treturn %s", r.contextWriteExpr("p", "v."+field.GoName, field.Type, "registrar"))
 		}
 		r.linef("\tdefault:")
 		r.linef("\t\treturn fmt.Errorf(\"%%w: invalid %s tag %%d\", binder.ErrBadParcelable, v.Tag)", u.GoName)
@@ -943,7 +1305,7 @@ func (r *goRenderer) renderUnion(u *gomodel.Union) {
 		r.linef("\tswitch v.Tag {")
 		for _, field := range u.Fields {
 			r.linef("\tcase %sTag%s:", u.GoName, field.GoName)
-			r.linef("\t\treturn %s", r.writeExpr("p", "v."+field.GoName, field.Type, ""))
+			r.linef("\t\treturn %s", r.contextWriteExpr("p", "v."+field.GoName, field.Type, ""))
 		}
 		r.linef("\tdefault:")
 		r.linef("\t\treturn fmt.Errorf(\"%%w: invalid %s tag %%d\", binder.ErrBadParcelable, v.Tag)", u.GoName)
@@ -961,7 +1323,7 @@ func (r *goRenderer) renderUnion(u *gomodel.Union) {
 	r.linef("\tswitch v.Tag {")
 	for _, field := range u.Fields {
 		r.linef("\tcase %sTag%s:", u.GoName, field.GoName)
-		r.linef("\t\tdecoded, err := %s", r.readExpr("p", field.Type))
+		r.linef("\t\tdecoded, err := %s", r.contextReadExpr("p", field.Type))
 		r.linef("\t\tif err != nil {")
 		r.linef("\t\t\treturn %s{}, err", u.GoName)
 		r.linef("\t\t}")
@@ -1152,9 +1514,6 @@ func (r *goRenderer) renderInterface(iface *gomodel.Interface) {
 	r.linef("\tif descriptor != %sDescriptor {", iface.GoName)
 	r.linef("\t\treturn nil, fmt.Errorf(\"%%w: descriptor %%q, want %%q\", binder.ErrBadParcelable, descriptor, %sDescriptor)", iface.GoName)
 	r.linef("\t}")
-	if len(iface.Methods) != 0 {
-		r.linef("\tparcel := data")
-	}
 	r.linef("\tswitch code {")
 	for _, method := range iface.Methods {
 		r.renderHandlerCase(iface, method)
@@ -1303,7 +1662,7 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 		r.linef("\t}")
 	}
 	for _, arg := range method.Inputs {
-		r.linef("\tif err := %s; err != nil {", r.writeExpr("req", arg.GoName, arg.Type, "registrar"))
+		r.linef("\tif err := %s; err != nil {", r.methodArgWriteExpr("req", arg.GoName, &arg, "registrar"))
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
 	}
@@ -1328,9 +1687,12 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 	r.linef("\tif resp == nil {")
 	r.linef("\t\treturn %s", r.methodErrorReturn(method, "binder.ErrBadParcelable"))
 	r.linef("\t}")
+	r.linef("\tif err := binder.ReadException(resp); err != nil {")
+	r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
+	r.linef("\t}")
 	retVar := "ret"
 	if method.Return != nil {
-		r.linef("\t%s, err := %s", retVar, r.readExpr("resp", method.Return.Type))
+		r.linef("\t%s, err := %s", retVar, r.methodValueReadExpr("resp", method.Return.Type, r.methodUsesTypedObjectEncoding(method.Return.Type)))
 		r.linef("\tif err != nil {")
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
@@ -1339,7 +1701,7 @@ func (r *goRenderer) renderProxyMethod(iface *gomodel.Interface, clientType stri
 	for _, out := range method.Outputs {
 		outVar := resultLocalName(out.GoName)
 		outVars = append(outVars, outVar)
-		r.linef("\t%s, err := %s", outVar, r.readExpr("resp", out.Type))
+		r.linef("\t%s, err := %s", outVar, r.methodValueReadExpr("resp", out.Type, true))
 		r.linef("\tif err != nil {")
 		r.linef("\t\treturn %s", r.methodErrorReturn(method, "err"))
 		r.linef("\t}")
@@ -1355,7 +1717,7 @@ func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel
 	for _, arg := range method.Inputs {
 		argVar := argLocalName(arg.GoName)
 		argVars = append(argVars, argVar)
-		r.linef("\t\t%s, err := %s", argVar, r.readExpr("parcel", arg.Type))
+		r.linef("\t\t%s, err := %s", argVar, r.methodArgReadExpr("data", &arg))
 		r.linef("\t\tif err != nil {")
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
@@ -1389,13 +1751,16 @@ func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel
 	r.linef("\t\t\treturn nil, err")
 	r.linef("\t\t}")
 	r.linef("\t\treply := binder.NewParcel()")
+	r.linef("\t\tif err := binder.WriteNoException(reply); err != nil {")
+	r.linef("\t\t\treturn nil, err")
+	r.linef("\t\t}")
 	if method.Return != nil {
-		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", retVar, method.Return.Type, "h.registrar"))
+		r.linef("\t\tif err := %s; err != nil {", r.methodValueWriteExpr("reply", retVar, method.Return.Type, "h.registrar", r.methodUsesTypedObjectEncoding(method.Return.Type)))
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
 	}
 	for i, out := range method.Outputs {
-		r.linef("\t\tif err := %s; err != nil {", r.writeExpr("reply", outVars[i], out.Type, "h.registrar"))
+		r.linef("\t\tif err := %s; err != nil {", r.methodValueWriteExpr("reply", outVars[i], out.Type, "h.registrar", true))
 		r.linef("\t\t\treturn nil, err")
 		r.linef("\t\t}")
 	}
@@ -1464,6 +1829,78 @@ func (r *goRenderer) methodSuccessReturnVars(method *gomodel.Method, retVar stri
 	}
 	parts = append(parts, "nil")
 	return strings.Join(parts, ", ")
+}
+
+func (r *goRenderer) methodArgWriteExpr(parcel string, value string, arg *gomodel.Field, registrar string) string {
+	if arg == nil {
+		return fmt.Sprintf("fmt.Errorf(\"%%w: nil method arg\", binder.ErrUnsupported)")
+	}
+	return r.contextWriteExpr(parcel, value, arg.Type, registrar)
+}
+
+func (r *goRenderer) methodArgReadExpr(parcel string, arg *gomodel.Field) string {
+	if arg == nil {
+		return fmt.Sprintf("func() (any, error) { return nil, fmt.Errorf(\"%%w: nil method arg\", binder.ErrUnsupported) }()")
+	}
+	return r.contextReadExpr(parcel, arg.Type)
+}
+
+func (r *goRenderer) methodValueWriteExpr(parcel string, value string, typ *gomodel.Type, registrar string, typedObject bool) string {
+	return r.contextWriteExpr(parcel, value, typ, registrar)
+}
+
+func (r *goRenderer) methodValueReadExpr(parcel string, typ *gomodel.Type, typedObject bool) string {
+	return r.contextReadExpr(parcel, typ)
+}
+
+func (r *goRenderer) methodUsesTypedObjectEncoding(typ *gomodel.Type) bool {
+	if typ == nil {
+		return false
+	}
+	switch typ.Kind {
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *goRenderer) contextWriteExpr(parcel string, value string, typ *gomodel.Type, registrar string) string {
+	if !r.methodUsesTypedObjectEncoding(typ) {
+		return r.writeExpr(parcel, value, typ, registrar)
+	}
+	if typ.Nullable {
+		return r.writeExpr(parcel, value, typ, registrar)
+	}
+	nonNullable := *typ
+	nonNullable.Nullable = false
+	return fmt.Sprintf(`func() error {
+	if err := %s.WriteInt32(1); err != nil {
+		return err
+	}
+	return %s
+}()`, parcel, r.writeExpr(parcel, value, &nonNullable, registrar))
+}
+
+func (r *goRenderer) contextReadExpr(parcel string, typ *gomodel.Type) string {
+	if !r.methodUsesTypedObjectEncoding(typ) {
+		return r.readExpr(parcel, typ)
+	}
+	if typ.Nullable {
+		return r.readExpr(parcel, typ)
+	}
+	nonNullable := *typ
+	nonNullable.Nullable = false
+	return fmt.Sprintf(`func() (%s, error) {
+	present, err := %s.ReadInt32()
+	if err != nil {
+		return %s, err
+	}
+	if present == 0 {
+		return %s, nil
+	}
+	return %s
+}()`, r.typeExpr(typ), parcel, r.zeroExpr(typ), r.zeroExpr(typ), r.readExpr(parcel, &nonNullable))
 }
 
 func (r *goRenderer) writeExpr(parcel string, value string, typ *gomodel.Type, registrar string) string {
@@ -1555,10 +1992,15 @@ func (r *goRenderer) writeExpr(parcel string, value string, typ *gomodel.Type, r
 			return fmt.Sprintf("%sWrite%sToParcel(%s, %s, %s)", qualifier, typ.NamedGo, parcel, registrarExpr(registrar), value)
 		}
 		return fmt.Sprintf("write%sToParcel(%s, %s, %s)", typ.NamedGo, parcel, registrarExpr(registrar), value)
+	case gomodel.TypeMap:
+		if r.isRawMapType(typ) {
+			return fmt.Sprintf("binder.WriteMap(%s, %s, func(p *binder.Parcel, item any) error { return binder.WriteDynamicValue(p, item) }, func(p *binder.Parcel, item any) error { return binder.WriteDynamicValue(p, item) })", parcel, value)
+		}
+		return fmt.Sprintf("binder.WriteMap(%s, %s, func(p *binder.Parcel, item %s) error { return %s }, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, r.typeExpr(typ.Key), r.contextWriteExpr("p", "item", typ.Key, registrar), r.typeExpr(typ.Value), r.contextWriteExpr("p", "item", typ.Value, registrar))
 	case gomodel.TypeSlice:
-		return fmt.Sprintf("binder.WriteSlice(%s, %s, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, r.typeExpr(typ.Elem), r.writeExpr("p", "item", typ.Elem, registrar))
+		return fmt.Sprintf("binder.WriteSlice(%s, %s, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, r.typeExpr(typ.Elem), r.contextWriteExpr("p", "item", typ.Elem, registrar))
 	case gomodel.TypeArray:
-		return fmt.Sprintf("binder.WriteFixedSlice(%s, %s[:], %d, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, typ.FixedLen, r.typeExpr(typ.Elem), r.writeExpr("p", "item", typ.Elem, registrar))
+		return fmt.Sprintf("binder.WriteFixedSlice(%s, %s[:], %d, func(p *binder.Parcel, item %s) error { return %s })", parcel, value, typ.FixedLen, r.typeExpr(typ.Elem), r.contextWriteExpr("p", "item", typ.Elem, registrar))
 	default:
 		return fmt.Sprintf("fmt.Errorf(\"%%w: unsupported type %s\", binder.ErrUnsupported)", r.typeExpr(typ))
 	}
@@ -1629,8 +2071,13 @@ func (r *goRenderer) readExpr(parcel string, typ *gomodel.Type) string {
 			return fmt.Sprintf("%sRead%sFromParcel(%s)", qualifier, typ.NamedGo, parcel)
 		}
 		return fmt.Sprintf("read%sFromParcel(%s)", typ.NamedGo, parcel)
+	case gomodel.TypeMap:
+		if r.isRawMapType(typ) {
+			return fmt.Sprintf("binder.ReadMap(%s, func(p *binder.Parcel) (any, error) { return binder.ReadDynamicValue(p) }, func(p *binder.Parcel) (any, error) { return binder.ReadDynamicValue(p) })", parcel)
+		}
+		return fmt.Sprintf("binder.ReadMap(%s, func(p *binder.Parcel) (%s, error) { return %s }, func(p *binder.Parcel) (%s, error) { return %s })", parcel, r.typeExpr(typ.Key), r.contextReadExpr("p", typ.Key), r.typeExpr(typ.Value), r.contextReadExpr("p", typ.Value))
 	case gomodel.TypeSlice:
-		return fmt.Sprintf("binder.ReadSlice(%s, func(p *binder.Parcel) (%s, error) { return %s })", parcel, r.typeExpr(typ.Elem), r.readExpr("p", typ.Elem))
+		return fmt.Sprintf("binder.ReadSlice(%s, func(p *binder.Parcel) (%s, error) { return %s })", parcel, r.typeExpr(typ.Elem), r.contextReadExpr("p", typ.Elem))
 	case gomodel.TypeArray:
 		return fmt.Sprintf(`func() (%s, error) {
 	items, err := binder.ReadFixedSlice(%s, %d, func(p *binder.Parcel) (%s, error) { return %s })
@@ -1640,7 +2087,7 @@ func (r *goRenderer) readExpr(parcel string, typ *gomodel.Type) string {
 	var value %s
 	copy(value[:], items)
 	return value, nil
-}()`, r.typeExpr(typ), parcel, typ.FixedLen, r.typeExpr(typ.Elem), r.readExpr("p", typ.Elem), r.zeroExpr(typ), r.typeExpr(typ))
+}()`, r.typeExpr(typ), parcel, typ.FixedLen, r.typeExpr(typ.Elem), r.contextReadExpr("p", typ.Elem), r.zeroExpr(typ), r.typeExpr(typ))
 	default:
 		return fmt.Sprintf("func() (%s, error) { return %s, fmt.Errorf(\"%%w: unsupported type %s\", binder.ErrUnsupported) }()", r.typeExpr(typ), r.zeroExpr(typ), r.typeExpr(typ))
 	}
@@ -1834,6 +2281,8 @@ func (r *goRenderer) typeNeedsRegistrarSeen(typ *gomodel.Type, seen map[string]s
 		return true
 	case gomodel.TypeSlice, gomodel.TypeArray:
 		return r.typeNeedsRegistrarSeen(typ.Elem, seen)
+	case gomodel.TypeMap:
+		return r.typeNeedsRegistrarSeen(typ.Key, seen) || r.typeNeedsRegistrarSeen(typ.Value, seen)
 	case gomodel.TypeParcelable:
 		if _, _, ok := r.customParcelableConfig(typ); ok {
 			return false

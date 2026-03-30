@@ -66,6 +66,7 @@ func Lower(file *ast.File, opts LowerOptions) (*File, []Diagnostic) {
 		byQName:           map[string]*namedSymbol{},
 		customParcelables: opts.CustomParcelables,
 		stableInterfaces:  opts.StableInterfaces,
+		importAliases:     importAliases(file),
 	}
 	state.root = &scope{symbols: map[string]*namedSymbol{}}
 
@@ -88,6 +89,7 @@ type lowerState struct {
 	byQName           map[string]*namedSymbol
 	customParcelables map[string]CustomParcelableConfig
 	stableInterfaces  map[string]StableInterfaceConfig
+	importAliases     map[string]string
 }
 
 func (s *lowerState) collectTopLevel(file *ast.File) {
@@ -246,10 +248,34 @@ func (s *lowerState) lowerInterface(current *scope, owner *namedSymbol, decl *as
 			}
 			s.registerNameAliases(constNames, sym.aidlName+"."+m.Name, goName)
 		case *ast.MethodDecl:
-			method := s.lowerMethod(sym.scope, iface, m, txCode)
+			methodTxCode := txCode
+			if m.Transaction != "" {
+				valueExpr := s.lowerValueExpression(sym.scope, m.Transaction, constNames)
+				if valueExpr == "" {
+					valueExpr = aidlexpr.Normalize(m.Transaction)
+				}
+				value, err := aidlexpr.EvalInt64(m.Transaction, constValues)
+				if err != nil {
+					s.diags = append(s.diags, Diagnostic{
+						Message: fmt.Sprintf("method %s.%s has invalid transaction id %q: %v", iface.GoName, m.Name, m.Transaction, err),
+					})
+				} else if value <= 0 {
+					s.diags = append(s.diags, Diagnostic{
+						Message: fmt.Sprintf("method %s.%s has invalid non-positive transaction id %q", iface.GoName, m.Name, valueExpr),
+					})
+				} else {
+					methodTxCode = uint32(value)
+					if next := uint32(value) + 1; next > txCode {
+						txCode = next
+					}
+				}
+			}
+			method := s.lowerMethod(sym.scope, iface, m, methodTxCode)
 			if method != nil {
 				iface.Methods = append(iface.Methods, method)
-				txCode++
+				if m.Transaction == "" {
+					txCode++
+				}
 			}
 		case *ast.ParcelableDecl:
 			s.lowerParcelable(sym.scope, sym, m)
@@ -548,6 +574,40 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 		}
 	}
 
+	if ref.Name == "Map" {
+		switch len(ref.TypeArgs) {
+		case 0:
+			return &Type{
+				Kind:     TypeMap,
+				GoExpr:   "map[any]any",
+				Key:      &Type{Kind: TypeUnsupported, GoExpr: "any"},
+				Value:    &Type{Kind: TypeUnsupported, GoExpr: "any"},
+				Nullable: true,
+			}
+		case 2:
+			key := s.lowerType(current, ref.TypeArgs[0])
+			if key == nil {
+				return nil
+			}
+			value := s.lowerType(current, ref.TypeArgs[1])
+			if value == nil {
+				return nil
+			}
+			return &Type{
+				Kind:     TypeMap,
+				GoExpr:   fmt.Sprintf("map[%s]%s", key.GoExpr, value.GoExpr),
+				Key:      key,
+				Value:    value,
+				Nullable: true,
+			}
+		default:
+			s.diags = append(s.diags, Diagnostic{
+				Message: fmt.Sprintf("Map requires zero or two type arguments, got %d", len(ref.TypeArgs)),
+			})
+			return nil
+		}
+	}
+
 	if ref.Array {
 		base := ast.TypeRef{
 			Name:     ref.Name,
@@ -689,6 +749,11 @@ func (s *lowerState) lookupType(current *scope, name string) *namedSymbol {
 		}
 		return nil
 	}
+	if full, ok := s.importAliases[name]; ok {
+		if sym := s.byQName[full]; sym != nil {
+			return sym
+		}
+	}
 
 	for scope := current; scope != nil; scope = scope.parent {
 		if sym := scope.symbols[name]; sym != nil {
@@ -709,6 +774,20 @@ func (s *lowerState) lookupType(current *scope, name string) *namedSymbol {
 		}
 	}
 	return nil
+}
+
+func importAliases(file *ast.File) map[string]string {
+	if file == nil || len(file.Imports) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(file.Imports))
+	for _, imp := range file.Imports {
+		if imp.Path == "" {
+			continue
+		}
+		out[lastSegment(imp.Path)] = imp.Path
+	}
+	return out
 }
 
 func packageName(name string) string {

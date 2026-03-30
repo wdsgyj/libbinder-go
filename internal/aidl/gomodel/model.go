@@ -136,6 +136,7 @@ const (
 	TypeUnion                TypeKind = "union"
 	TypeSlice                TypeKind = "slice"
 	TypeArray                TypeKind = "array"
+	TypeMap                  TypeKind = "map"
 	TypeExternal             TypeKind = "external"
 	TypeUnsupported          TypeKind = "unsupported"
 )
@@ -148,6 +149,8 @@ type Type struct {
 	Nullable    bool     `json:"nullable,omitempty"`
 	FixedLen    int      `json:"fixed_len,omitempty"`
 	Elem        *Type    `json:"elem,omitempty"`
+	Key         *Type    `json:"key,omitempty"`
+	Value       *Type    `json:"value,omitempty"`
 	NamedGo     string   `json:"named_go,omitempty"`
 	IsList      bool     `json:"is_list,omitempty"`
 	IsArray     bool     `json:"is_array,omitempty"`

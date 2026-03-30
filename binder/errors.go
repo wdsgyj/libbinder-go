@@ -85,8 +85,9 @@ const (
 
 // RemoteException represents an application-level exception returned by a remote Binder service.
 type RemoteException struct {
-	Code    ExceptionCode
-	Message string
+	Code        ExceptionCode
+	Message     string
+	ServiceCode int32
 }
 
 func (e *RemoteException) Error() string {
