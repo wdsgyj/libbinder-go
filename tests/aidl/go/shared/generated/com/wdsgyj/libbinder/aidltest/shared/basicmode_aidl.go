@@ -8,18 +8,25 @@ import (
 
 func basicModeWriteNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {
 	if v == nil {
-		return p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))
+		return p.WriteInt32(0)
+	}
+	if err := p.WriteInt32(1); err != nil {
+		return err
 	}
 	return p.WriteParcelFileDescriptor(*v)
 }
 
 func basicModeReadNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {
-	v, err := p.ReadParcelFileDescriptor()
+	present, err := p.ReadInt32()
 	if err != nil {
 		return nil, err
 	}
-	if v.FD() < 0 {
+	if present == 0 {
 		return nil, nil
+	}
+	v, err := p.ReadParcelFileDescriptor()
+	if err != nil {
+		return nil, err
 	}
 	return &v, nil
 }

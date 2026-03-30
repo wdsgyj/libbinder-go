@@ -17,7 +17,7 @@ ANDROID_FIXTURE_AS_ROOT="${ANDROID_FIXTURE_AS_ROOT:-1}"
 ANDROID_HEADLESS="${ANDROID_HEADLESS:-1}"
 ANDROID_WIPE_DATA="${ANDROID_WIPE_DATA:-0}"
 ANDROID_KEEP_EMULATOR="${ANDROID_KEEP_EMULATOR:-0}"
-GRADLE_BIN="${GRADLE_BIN:-gradle}"
+GRADLE_BIN="${GRADLE_BIN:-${ROOT_DIR}/tests/aidl/android/gradlew}"
 REMOTE_DIR="${REMOTE_DIR:-/data/local/tmp/libbinder-go-aidl}"
 SERVICE_NAME="${SERVICE_NAME:-libbinder.go.aidltest.baseline}"
 GO_ENV_ANDROID=(GOOS=android GOARCH=arm64 CGO_ENABLED=0)
@@ -181,7 +181,11 @@ main() {
     exit 0
   fi
 
-  command -v "${GRADLE_BIN}" >/dev/null 2>&1 || android_die "gradle not found: ${GRADLE_BIN}"
+  if [[ "${GRADLE_BIN}" == */* ]]; then
+    [ -x "${GRADLE_BIN}" ] || android_die "gradle wrapper not found: ${GRADLE_BIN}"
+  else
+    command -v "${GRADLE_BIN}" >/dev/null 2>&1 || android_die "gradle not found: ${GRADLE_BIN}"
+  fi
 
   prepare_target
   build_java_server

@@ -10,6 +10,15 @@
   - `scripts/android-aidl-basic-cases.sh`
   - 覆盖 Java server -> Go client 与 Go server -> Java client
   - 覆盖 baseline、nullable string、`int[]`、固定数组、`List<String>`、`List<Parcelable>`、`Map<String,String>`、`Map<String,Parcelable>`、enum、union、structured parcelable、复杂 parcelable 的 return / `out` / `inout`
+- 增加 Android emulator AIDL advanced 兼容矩阵：
+  - `scripts/android-aidl-advanced-cases.sh`
+  - 覆盖 Java server -> Go client 与 Go server -> Java client
+  - 覆盖 raw `IBinder`、typed callback、`oneway`、service-specific exception、`FileDescriptor`、`ParcelFileDescriptor`
+- 增加 advanced 共享 fixture 与双端实现：
+  - `tests/aidl/android/shared/src/main/aidl/.../IAdvancedCallback.aidl`
+  - `tests/aidl/extra/aidl/.../IAdvancedService.aidl`
+  - Java/Go 双端 advanced client/server 与共享断言 helper
+  - Java 侧新增 `AdvancedServiceProtocol` 手写 Binder shim，用于覆盖 SDK AIDL 无法直接编译的 raw `FileDescriptor` 路径
 - 增加基础矩阵共享 fixture：
   - `tests/aidl/android/shared/src/main/aidl/.../IBasicMatrixService.aidl`
   - `BasicBundle.aidl`
@@ -63,10 +72,18 @@
   - `List<Parcelable>`
   - `Map<String,Parcelable>`
   - union parcelable 分支
+  - `ParcelFileDescriptor` 参数/返回值现在按 Java typed-object presence 语义编解码
 - 结构化 parcelable 现在按 Java AIDL 真实 size-prefixed 格式编解码
 - union tag 编号现在与 Java AIDL 对齐，从 `0` 开始
 - Android fixture Gradle 构建现在固定使用 `build-tools 35.0.1`
   - 使 enum / union / fixed array 等 AIDL 语法可用于测试工程
+- Android AIDL fixture Gradle 工程现在切换到 wrapper + AGP 8.13 / Gradle 8.13：
+  - 允许 `compileSdk 35`
+  - 使 advanced emulator slice 可在本地稳定构建
+- 生成 handler 现在支持把实现层返回的 service-specific error 写成标准 Binder exception reply
+- `binder/status_codec.go` 新增支持型异常回包能力，允许生成代码在 reply 中编码远端异常
+- kernel reply object 解析现在接受 `BINDER_TYPE_BINDER` / `BINDER_TYPE_WEAK_BINDER`
+  - 修复 raw binder 回到 owner 进程时 Go runtime 的 object type 兼容问题
 - `binder.Parcel.ReadInterfaceToken()` 现在按 AOSP 实际语义读取 request header：
   - 不再把 `strictMode` 与 `workSourceUid` 当作固定值校验
   - 修复 framework callback 在真机上的误判坏 Parcel 问题
@@ -104,6 +121,7 @@
 
 - Android aarch64 emulator：
   - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-basic-cases.sh`
+  - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-advanced-cases.sh`
 - Android arm64 构建：
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-cmd ./cmd/cmd`
   - `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/libbinder-go-service ./cmd/service`

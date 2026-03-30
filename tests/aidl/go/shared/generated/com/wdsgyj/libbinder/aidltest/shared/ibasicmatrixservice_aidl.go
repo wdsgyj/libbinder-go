@@ -10,18 +10,25 @@ import (
 
 func iBasicMatrixServiceWriteNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {
 	if v == nil {
-		return p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))
+		return p.WriteInt32(0)
+	}
+	if err := p.WriteInt32(1); err != nil {
+		return err
 	}
 	return p.WriteParcelFileDescriptor(*v)
 }
 
 func iBasicMatrixServiceReadNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {
-	v, err := p.ReadParcelFileDescriptor()
+	present, err := p.ReadInt32()
 	if err != nil {
 		return nil, err
 	}
-	if v.FD() < 0 {
+	if present == 0 {
 		return nil, nil
+	}
+	v, err := p.ReadParcelFileDescriptor()
+	if err != nil {
+		return nil, err
 	}
 	return &v, nil
 }
@@ -570,6 +577,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.EchoNullable(ctx, valueArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -587,6 +602,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.ReverseInts(ctx, valuesArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -612,6 +635,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.RotateTriple(ctx, tripleArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -629,6 +660,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.DecorateTags(ctx, tagsArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -657,6 +696,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.DecoratePayloads(ctx, payloadsArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -681,6 +728,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.DecorateLabels(ctx, labelsArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -709,6 +764,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.DecoratePayloadMap(ctx, payloadMapArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -733,6 +796,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.FlipMode(ctx, modeArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -759,6 +830,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.NormalizeUnion(ctx, valueArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -790,6 +869,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, err := h.impl.NormalizeBundle(ctx, valueArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -834,6 +921,14 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		ret, doubledValue, payloadOutValue, err := h.impl.ExpandBundle(ctx, inputArg, payloadArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()

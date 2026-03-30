@@ -90,4 +90,12 @@ Each invocation semantic must appear in:
   - `ENUM-001`
   - `UNION-001`
   - `PARC-001`
+- Current emulator-complete advanced slice:
+  - `BIND-001`
+  - `BIND-002`
+  - `ONEW-001`
+  - `EXC-001`
+  - `FD-001`
+  - `FD-002`
 - `MAP-003` is intentionally not part of the Java-AIDL-driven basic emulator matrix because current Android AIDL tooling rejects untyped `Map` in interface definitions.
+- `FD-001` cannot be exercised through a normal Java AIDL SDK stub because `FileDescriptor` marshaling in generated Java uses hidden `Parcel.readRawFileDescriptor()` / `writeRawFileDescriptor()`. The emulator fixture therefore keeps the Go side on generated AIDL and uses a hand-written Java Binder protocol shim with the same descriptor and transaction codes.

@@ -23,27 +23,18 @@ GO_ENV_ANDROID=(GOOS=android GOARCH=arm64 CGO_ENABLED=0)
 
 JAVA_SERVER_PACKAGE="com.wdsgyj.libbinder.aidltest.javaserver"
 JAVA_CLIENT_PACKAGE="com.wdsgyj.libbinder.aidltest.javaclient"
-JAVA_BASELINE_SERVER_MAIN="com.wdsgyj.libbinder.aidltest.javaserver.FixtureServerMain"
-JAVA_MATRIX_SERVER_MAIN="com.wdsgyj.libbinder.aidltest.javaserver.BasicMatrixServerMain"
-JAVA_BASELINE_CLIENT_MAIN="com.wdsgyj.libbinder.aidltest.javaclient.FixtureClientMain"
-JAVA_MATRIX_CLIENT_MAIN="com.wdsgyj.libbinder.aidltest.javaclient.BasicMatrixClientMain"
+JAVA_ADVANCED_SERVER_MAIN="com.wdsgyj.libbinder.aidltest.javaserver.AdvancedServerMain"
+JAVA_ADVANCED_CLIENT_MAIN="com.wdsgyj.libbinder.aidltest.javaclient.AdvancedClientMain"
 
-BASELINE_SERVICE_NAME="${BASELINE_SERVICE_NAME:-libbinder.go.aidltest.baseline}"
-MATRIX_SERVICE_NAME="${MATRIX_SERVICE_NAME:-libbinder.go.aidltest.matrix}"
+ADVANCED_SERVICE_NAME="${ADVANCED_SERVICE_NAME:-libbinder.go.aidltest.advanced}"
 
-REMOTE_BASELINE_GO_CLIENT="${REMOTE_DIR}/baseline-go-client"
-REMOTE_BASELINE_GO_SERVER="${REMOTE_DIR}/baseline-go-server"
-REMOTE_MATRIX_GO_CLIENT="${REMOTE_DIR}/matrix-go-client"
-REMOTE_MATRIX_GO_SERVER="${REMOTE_DIR}/matrix-go-server"
+REMOTE_ADVANCED_GO_CLIENT="${REMOTE_DIR}/advanced-go-client"
+REMOTE_ADVANCED_GO_SERVER="${REMOTE_DIR}/advanced-go-server"
 
-REMOTE_BASELINE_JAVA_SERVER_LOG="${REMOTE_DIR}/baseline-java-server.log"
-REMOTE_BASELINE_JAVA_CLIENT_LOG="${REMOTE_DIR}/baseline-java-client.log"
-REMOTE_BASELINE_GO_SERVER_LOG="${REMOTE_DIR}/baseline-go-server.log"
-REMOTE_BASELINE_GO_CLIENT_LOG="${REMOTE_DIR}/baseline-go-client.log"
-REMOTE_MATRIX_JAVA_SERVER_LOG="${REMOTE_DIR}/matrix-java-server.log"
-REMOTE_MATRIX_JAVA_CLIENT_LOG="${REMOTE_DIR}/matrix-java-client.log"
-REMOTE_MATRIX_GO_SERVER_LOG="${REMOTE_DIR}/matrix-go-server.log"
-REMOTE_MATRIX_GO_CLIENT_LOG="${REMOTE_DIR}/matrix-go-client.log"
+REMOTE_ADVANCED_JAVA_SERVER_LOG="${REMOTE_DIR}/advanced-java-server.log"
+REMOTE_ADVANCED_JAVA_CLIENT_LOG="${REMOTE_DIR}/advanced-java-client.log"
+REMOTE_ADVANCED_GO_SERVER_LOG="${REMOTE_DIR}/advanced-go-server.log"
+REMOTE_ADVANCED_GO_CLIENT_LOG="${REMOTE_DIR}/advanced-go-client.log"
 
 SERVER_PIDS=()
 
@@ -68,19 +59,17 @@ cleanup() {
 trap cleanup EXIT
 
 log() {
-  echo "[android-aidl-basic-cases] $*"
+  echo "[android-aidl-advanced-cases] $*"
 }
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/android-aidl-basic-cases.sh
+  ./scripts/android-aidl-advanced-cases.sh
 
-Runs the basic Android emulator AIDL compatibility slice:
-  1. Java server -> Go client (baseline)
-  2. Java server -> Go client (matrix)
-  3. Go server -> Java client (baseline)
-  4. Go server -> Java client (matrix)
+Runs the advanced Android emulator AIDL compatibility slice:
+  1. Java server -> Go client (advanced)
+  2. Go server -> Java client (advanced)
 EOF
 }
 
@@ -88,14 +77,10 @@ dump_case_logs() {
   local path=""
   log "device fixture logs:"
   for path in \
-    "${REMOTE_BASELINE_JAVA_SERVER_LOG}" \
-    "${REMOTE_BASELINE_JAVA_CLIENT_LOG}" \
-    "${REMOTE_BASELINE_GO_SERVER_LOG}" \
-    "${REMOTE_BASELINE_GO_CLIENT_LOG}" \
-    "${REMOTE_MATRIX_JAVA_SERVER_LOG}" \
-    "${REMOTE_MATRIX_JAVA_CLIENT_LOG}" \
-    "${REMOTE_MATRIX_GO_SERVER_LOG}" \
-    "${REMOTE_MATRIX_GO_CLIENT_LOG}"; do
+    "${REMOTE_ADVANCED_JAVA_SERVER_LOG}" \
+    "${REMOTE_ADVANCED_JAVA_CLIENT_LOG}" \
+    "${REMOTE_ADVANCED_GO_SERVER_LOG}" \
+    "${REMOTE_ADVANCED_GO_CLIENT_LOG}"; do
     echo "--- ${path} ---"
     "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "cat $(android_shell_quote "${path}") 2>/dev/null || true"
   done
@@ -116,7 +101,7 @@ prepare_target() {
     android_ensure_avd
   fi
 
-  emulator_log="$(mktemp "${TMPDIR:-/tmp}/libbinder-go-aidl-basic.XXXXXX")"
+  emulator_log="$(mktemp "${TMPDIR:-/tmp}/libbinder-go-aidl-advanced.XXXXXX")"
   android_start_emulator "${ANDROID_SERIAL}" "${ANDROID_EMULATOR_PORT}" "${emulator_log}"
   android_root_device "${ANDROID_SERIAL}"
 }
@@ -152,21 +137,17 @@ build_go_fixtures() {
   log "building Go fixture binaries"
   (
     cd "${ROOT_DIR}"
-    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/baseline-go-client ./tests/aidl/go/client/baseline
-    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/baseline-go-server ./tests/aidl/go/server/baseline
-    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/matrix-go-client ./tests/aidl/go/client/matrix
-    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/matrix-go-server ./tests/aidl/go/server/matrix
+    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/advanced-go-client ./tests/aidl/go/client/advanced
+    env "${GO_ENV_ANDROID[@]}" go build -o /tmp/advanced-go-server ./tests/aidl/go/server/advanced
   )
 }
 
 push_go_fixtures() {
   log "pushing Go fixture binaries"
   "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "mkdir -p $(android_shell_quote "${REMOTE_DIR}")" >/dev/null
-  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/baseline-go-client "${REMOTE_BASELINE_GO_CLIENT}" >/dev/null
-  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/baseline-go-server "${REMOTE_BASELINE_GO_SERVER}" >/dev/null
-  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/matrix-go-client "${REMOTE_MATRIX_GO_CLIENT}" >/dev/null
-  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/matrix-go-server "${REMOTE_MATRIX_GO_SERVER}" >/dev/null
-  "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "chmod 755 $(android_shell_quote "${REMOTE_BASELINE_GO_CLIENT}") $(android_shell_quote "${REMOTE_BASELINE_GO_SERVER}") $(android_shell_quote "${REMOTE_MATRIX_GO_CLIENT}") $(android_shell_quote "${REMOTE_MATRIX_GO_SERVER}")" >/dev/null
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/advanced-go-client "${REMOTE_ADVANCED_GO_CLIENT}" >/dev/null
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" push /tmp/advanced-go-server "${REMOTE_ADVANCED_GO_SERVER}" >/dev/null
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell "chmod 755 $(android_shell_quote "${REMOTE_ADVANCED_GO_CLIENT}") $(android_shell_quote "${REMOTE_ADVANCED_GO_SERVER}")" >/dev/null
 }
 
 installed_apk_path() {
@@ -254,12 +235,6 @@ start_go_server() {
   start_background "${log_path}" "cd $(android_shell_quote "${REMOTE_DIR}") && exec ./$(basename "${binary_path}") $(android_join_shell_words "-service" "${service_name}" "-prefix" "${prefix}")"
 }
 
-start_go_baseline_server() {
-  local service_name="$1"
-  local log_path="$2"
-  start_background "${log_path}" "cd $(android_shell_quote "${REMOTE_DIR}") && exec ./$(basename "${REMOTE_BASELINE_GO_SERVER}") $(android_join_shell_words "-service" "${service_name}")"
-}
-
 run_go_client() {
   local binary_path="$1"
   local service_name="$2"
@@ -268,39 +243,17 @@ run_go_client() {
   run_foreground_to_log "${log_path}" "cd $(android_shell_quote "${REMOTE_DIR}") && exec ./$(basename "${binary_path}") $(android_join_shell_words "-service" "${service_name}" "-expect-prefix" "${expected_prefix}")"
 }
 
-run_go_matrix_client() {
-  run_go_client "${REMOTE_MATRIX_GO_CLIENT}" "$1" "$2" "$3"
-}
-
-run_go_baseline_client() {
-  run_go_client "${REMOTE_BASELINE_GO_CLIENT}" "$1" "$2" "$3"
-}
-
-run_case_java_server_go_client_baseline() {
-  log "case: java_server_go_client baseline"
-  start_java_server "${JAVA_BASELINE_SERVER_MAIN}" "${BASELINE_SERVICE_NAME}" "java" "${REMOTE_BASELINE_JAVA_SERVER_LOG}"
-  run_go_baseline_client "${BASELINE_SERVICE_NAME}" "java" "${REMOTE_BASELINE_GO_CLIENT_LOG}"
+run_case_java_server_go_client_advanced() {
+  log "case: java_server_go_client advanced"
+  start_java_server "${JAVA_ADVANCED_SERVER_MAIN}" "${ADVANCED_SERVICE_NAME}" "java" "${REMOTE_ADVANCED_JAVA_SERVER_LOG}"
+  run_go_client "${REMOTE_ADVANCED_GO_CLIENT}" "${ADVANCED_SERVICE_NAME}" "java" "${REMOTE_ADVANCED_GO_CLIENT_LOG}"
   stop_last_server
 }
 
-run_case_java_server_go_client_matrix() {
-  log "case: java_server_go_client matrix"
-  start_java_server "${JAVA_MATRIX_SERVER_MAIN}" "${MATRIX_SERVICE_NAME}" "java" "${REMOTE_MATRIX_JAVA_SERVER_LOG}"
-  run_go_matrix_client "${MATRIX_SERVICE_NAME}" "java" "${REMOTE_MATRIX_GO_CLIENT_LOG}"
-  stop_last_server
-}
-
-run_case_go_server_java_client_baseline() {
-  log "case: go_server_java_client baseline"
-  start_go_baseline_server "${BASELINE_SERVICE_NAME}" "${REMOTE_BASELINE_GO_SERVER_LOG}"
-  run_java_client "${JAVA_BASELINE_CLIENT_MAIN}" "${BASELINE_SERVICE_NAME}" "go" "${REMOTE_BASELINE_JAVA_CLIENT_LOG}"
-  stop_last_server
-}
-
-run_case_go_server_java_client_matrix() {
-  log "case: go_server_java_client matrix"
-  start_go_server "${REMOTE_MATRIX_GO_SERVER}" "${MATRIX_SERVICE_NAME}" "go" "${REMOTE_MATRIX_GO_SERVER_LOG}"
-  run_java_client "${JAVA_MATRIX_CLIENT_MAIN}" "${MATRIX_SERVICE_NAME}" "go" "${REMOTE_MATRIX_JAVA_CLIENT_LOG}"
+run_case_go_server_java_client_advanced() {
+  log "case: go_server_java_client advanced"
+  start_go_server "${REMOTE_ADVANCED_GO_SERVER}" "${ADVANCED_SERVICE_NAME}" "go" "${REMOTE_ADVANCED_GO_SERVER_LOG}"
+  run_java_client "${JAVA_ADVANCED_CLIENT_MAIN}" "${ADVANCED_SERVICE_NAME}" "go" "${REMOTE_ADVANCED_JAVA_CLIENT_LOG}"
   stop_last_server
 }
 
@@ -322,12 +275,10 @@ main() {
   build_go_fixtures
   push_go_fixtures
 
-  run_case_java_server_go_client_baseline
-  run_case_java_server_go_client_matrix
-  run_case_go_server_java_client_baseline
-  run_case_go_server_java_client_matrix
+  run_case_java_server_go_client_advanced
+  run_case_go_server_java_client_advanced
 
-  log "all basic AIDL cases passed on ${ANDROID_SERIAL}"
+  log "all advanced AIDL cases passed on ${ANDROID_SERIAL}"
 }
 
 main "$@"

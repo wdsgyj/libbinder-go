@@ -10,18 +10,25 @@ import (
 
 func iBaselineServiceWriteNullableParcelFileDescriptorToParcel(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {
 	if v == nil {
-		return p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))
+		return p.WriteInt32(0)
+	}
+	if err := p.WriteInt32(1); err != nil {
+		return err
 	}
 	return p.WriteParcelFileDescriptor(*v)
 }
 
 func iBaselineServiceReadNullableParcelFileDescriptorFromParcel(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {
-	v, err := p.ReadParcelFileDescriptor()
+	present, err := p.ReadInt32()
 	if err != nil {
 		return nil, err
 	}
-	if v.FD() < 0 {
+	if present == 0 {
 		return nil, nil
+	}
+	v, err := p.ReadParcelFileDescriptor()
+	if err != nil {
+		return nil, err
 	}
 	return &v, nil
 }
@@ -246,6 +253,14 @@ func (h *iBaselineServiceHandler) HandleTransact(ctx context.Context, code uint3
 	case IBaselineServiceTransactionPing:
 		ret, err := h.impl.Ping(ctx)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -263,6 +278,14 @@ func (h *iBaselineServiceHandler) HandleTransact(ctx context.Context, code uint3
 		}
 		ret, err := h.impl.EchoNullable(ctx, valueArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()
@@ -293,6 +316,14 @@ func (h *iBaselineServiceHandler) HandleTransact(ctx context.Context, code uint3
 		}
 		ret, doubledValue, payloadOutValue, err := h.impl.Transform(ctx, inputArg, payloadArg)
 		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
 			return nil, err
 		}
 		reply := binder.NewParcel()

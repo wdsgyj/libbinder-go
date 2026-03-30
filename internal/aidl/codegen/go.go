@@ -870,18 +870,25 @@ func enumCastValue(enum *gomodel.Enum) string {
 func (r *goRenderer) renderParcelFileDescriptorHelpers() {
 	r.linef("func %s(p *binder.Parcel, v *binder.ParcelFileDescriptor) error {", r.nullableParcelFileDescriptorWriterName())
 	r.linef("\tif v == nil {")
-	r.linef("\t\treturn p.WriteParcelFileDescriptor(binder.NewParcelFileDescriptor(-1))")
+	r.linef("\t\treturn p.WriteInt32(0)")
+	r.linef("\t}")
+	r.linef("\tif err := p.WriteInt32(1); err != nil {")
+	r.linef("\t\treturn err")
 	r.linef("\t}")
 	r.linef("\treturn p.WriteParcelFileDescriptor(*v)")
 	r.linef("}")
 	r.linef("")
 	r.linef("func %s(p *binder.Parcel) (*binder.ParcelFileDescriptor, error) {", r.nullableParcelFileDescriptorReaderName())
-	r.linef("\tv, err := p.ReadParcelFileDescriptor()")
+	r.linef("\tpresent, err := p.ReadInt32()")
 	r.linef("\tif err != nil {")
 	r.linef("\t\treturn nil, err")
 	r.linef("\t}")
-	r.linef("\tif v.FD() < 0 {")
+	r.linef("\tif present == 0 {")
 	r.linef("\t\treturn nil, nil")
+	r.linef("\t}")
+	r.linef("\tv, err := p.ReadParcelFileDescriptor()")
+	r.linef("\tif err != nil {")
+	r.linef("\t\treturn nil, err")
 	r.linef("\t}")
 	r.linef("\treturn &v, nil")
 	r.linef("}")
@@ -1748,6 +1755,14 @@ func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel
 	}
 	r.linef("\t\t%s %s h.impl.%s(%s)", strings.Join(resultVars, ", "), assignOp, method.GoName, strings.Join(callArgs, ", "))
 	r.linef("\t\tif err != nil {")
+	r.linef("\t\t\treply := binder.NewParcel()")
+	r.linef("\t\t\thandled, writeErr := binder.TryWriteException(reply, err)")
+	r.linef("\t\t\tif writeErr != nil {")
+	r.linef("\t\t\t\treturn nil, writeErr")
+	r.linef("\t\t\t}")
+	r.linef("\t\t\tif handled {")
+	r.linef("\t\t\t\treturn reply, nil")
+	r.linef("\t\t\t}")
 	r.linef("\t\t\treturn nil, err")
 	r.linef("\t\t}")
 	r.linef("\t\treply := binder.NewParcel()")
@@ -1858,7 +1873,7 @@ func (r *goRenderer) methodUsesTypedObjectEncoding(typ *gomodel.Type) bool {
 		return false
 	}
 	switch typ.Kind {
-	case gomodel.TypeParcelable, gomodel.TypeUnion:
+	case gomodel.TypeParcelable, gomodel.TypeUnion, gomodel.TypeParcelFileDescriptor:
 		return true
 	default:
 		return false

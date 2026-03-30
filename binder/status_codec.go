@@ -1,6 +1,9 @@
 package binder
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	exceptionHasNotedAppOpsReplyHeader ExceptionCode = -127
@@ -91,6 +94,62 @@ func WriteNoException(p *Parcel) error {
 		return ErrBadParcelable
 	}
 	return p.WriteInt32(int32(ExceptionNone))
+}
+
+// TryWriteException encodes a supported remote exception reply into p.
+//
+// It returns handled=true when err was converted into a Binder exception
+// payload, allowing generated handlers to return a reply instead of surfacing
+// an internal transport error.
+func TryWriteException(p *Parcel, err error) (handled bool, writeErr error) {
+	if err == nil {
+		return false, nil
+	}
+	if p == nil {
+		return false, ErrBadParcelable
+	}
+
+	var remote *RemoteException
+	if errors.As(err, &remote) {
+		return true, writeRemoteException(p, remote)
+	}
+
+	var serviceErr *ServiceSpecificError
+	if errors.As(err, &serviceErr) {
+		return true, writeRemoteException(p, &RemoteException{
+			Code:        ExceptionServiceSpecific,
+			Message:     serviceErr.Message,
+			ServiceCode: serviceErr.Code,
+		})
+	}
+
+	return false, nil
+}
+
+func writeRemoteException(p *Parcel, remote *RemoteException) error {
+	if p == nil {
+		return ErrBadParcelable
+	}
+	if remote == nil {
+		return WriteNoException(p)
+	}
+	if err := p.WriteInt32(int32(remote.Code)); err != nil {
+		return err
+	}
+	if err := p.WriteString(remote.Message); err != nil {
+		return err
+	}
+	if err := p.WriteInt32(0); err != nil {
+		return err
+	}
+	switch remote.Code {
+	case ExceptionServiceSpecific:
+		return p.WriteInt32(remote.ServiceCode)
+	case ExceptionParcelable:
+		return p.WriteInt32(0)
+	default:
+		return nil
+	}
 }
 
 func skipExceptionHeader(p *Parcel) error {

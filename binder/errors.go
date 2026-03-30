@@ -99,3 +99,20 @@ func (e *RemoteException) Error() string {
 	}
 	return fmt.Sprintf("binder: remote exception %d: %s", e.Code, e.Message)
 }
+
+// ServiceSpecificError represents a service-defined checked failure that should
+// be encoded using Binder's EX_SERVICE_SPECIFIC reply form.
+type ServiceSpecificError struct {
+	Code    int32
+	Message string
+}
+
+func (e *ServiceSpecificError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	if e.Message == "" {
+		return fmt.Sprintf("binder: service-specific error %d", e.Code)
+	}
+	return fmt.Sprintf("binder: service-specific error %d: %s", e.Code, e.Message)
+}

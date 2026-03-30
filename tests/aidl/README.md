@@ -23,22 +23,24 @@ This directory is intentionally separate from package-local unit tests.
 
 ## Current Status
 
-The framework now has a runnable emulator basic matrix.
+The framework now has runnable emulator basic + advanced slices.
 
 What exists now:
 
 - phase plan and full case inventory
 - shared fixture AIDL definitions for baseline + basic matrix
+- advanced Binder/FD fixture set with Java hand-written protocol shim where SDK AIDL stubs cannot compile hidden `FileDescriptor` APIs
 - Java fixture services and clients
 - Go fixture services and clients
 - host runner entry scripts
 - emulator basic matrix runner
+- emulator advanced matrix runner
 
 What still needs implementation:
 
 - real-device execution path for custom service registration cases
 - raw `Map` compatibility path outside Java AIDL's typed restrictions
-- binder callback / oneway / FD / lifecycle / metadata phases
+- listener registration churn / lifecycle / metadata / Android callback carrier phases
 - release-gate aggregation across the full catalog
 
 ## Entry Points
@@ -48,3 +50,4 @@ What still needs implementation:
 - implementation order: `tests/aidl/cases/implementation-order.md`
 - helper script: `scripts/android-aidl-matrix-test.sh`
 - emulator basic matrix: `scripts/android-aidl-basic-cases.sh`
+- emulator advanced matrix: `scripts/android-aidl-advanced-cases.sh`

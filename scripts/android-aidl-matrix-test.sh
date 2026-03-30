@@ -22,6 +22,7 @@ Commands:
   generate-go   Regenerate Go bindings from shared AIDL fixtures
   baseline-sync Run the first Java server -> Go client baseline script
   basic-emulator Run the current basic emulator matrix
+  advanced-emulator Run the current advanced emulator slice
   catalog-json  Print the machine-readable case catalog
   help          Show this help
 
@@ -102,6 +103,9 @@ PY
     ;;
   basic-emulator)
     "${ROOT_DIR}/scripts/android-aidl-basic-cases.sh" "${@:2}"
+    ;;
+  advanced-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-advanced-cases.sh" "${@:2}"
     ;;
   catalog-json)
     cat "${CATALOG_JSON}"

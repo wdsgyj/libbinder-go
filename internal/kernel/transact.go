@@ -296,6 +296,10 @@ func parseTransactionObject(payload []byte, offset uint64) (api.ParcelObject, er
 	}
 
 	switch typ {
+	case BinderTypeBinder:
+		obj.Kind = api.ObjectStrongBinder
+	case BinderTypeWeakBinder:
+		obj.Kind = api.ObjectWeakBinder
 	case BinderTypeHandle:
 		obj.Kind = api.ObjectStrongBinder
 	case BinderTypeWeakHandle:
