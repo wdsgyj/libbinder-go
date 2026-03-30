@@ -83,21 +83,24 @@ func (m basicMatrixImpl) FlipMode(ctx context.Context, mode shared.BasicMode) (s
 	return FlipMode(mode), nil
 }
 
-func (m basicMatrixImpl) NormalizeUnion(ctx context.Context, value shared.BasicUnion) (shared.BasicUnion, error) {
-	return NormalizeUnion(m.prefix, value), nil
+func (m basicMatrixImpl) NormalizeUnion(ctx context.Context, value *shared.BasicUnion) (*shared.BasicUnion, error) {
+	out := NormalizeUnion(m.prefix, *value)
+	return &out, nil
 }
 
-func (m basicMatrixImpl) NormalizeBundle(ctx context.Context, value shared.BasicBundle) (shared.BasicBundle, error) {
-	return NormalizeBundle(m.prefix, value), nil
+func (m basicMatrixImpl) NormalizeBundle(ctx context.Context, value *shared.BasicBundle) (*shared.BasicBundle, error) {
+	out := NormalizeBundle(m.prefix, *value)
+	return &out, nil
 }
 
-func (m basicMatrixImpl) NormalizeEnvelope(ctx context.Context, value shared.BasicEnvelope) (shared.BasicEnvelope, error) {
-	return NormalizeEnvelope(m.prefix, value), nil
+func (m basicMatrixImpl) NormalizeEnvelope(ctx context.Context, value *shared.BasicEnvelope) (*shared.BasicEnvelope, error) {
+	out := NormalizeEnvelope(m.prefix, *value)
+	return &out, nil
 }
 
-func (m basicMatrixImpl) ExpandBundle(ctx context.Context, input shared.BasicBundle, payload shared.BasicBundle) (int32, shared.BasicBundle, shared.BasicBundle, error) {
-	ret, doubled, payloadOut := ExpandBundle(m.prefix, input, payload)
-	return ret, doubled, payloadOut, nil
+func (m basicMatrixImpl) ExpandBundle(ctx context.Context, input *shared.BasicBundle, payload *shared.BasicBundle) (int32, *shared.BasicBundle, *shared.BasicBundle, error) {
+	ret, doubled, payloadOut := ExpandBundle(m.prefix, *input, *payload)
+	return ret, &doubled, &payloadOut, nil
 }
 
 func TestVerifyBasicMatrixService(t *testing.T) {

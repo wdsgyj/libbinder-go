@@ -18,8 +18,9 @@ type customParcelableServer struct {
 	prefix string
 }
 
-func (s customParcelableServer) Normalize(ctx context.Context, value customcodec.CustomBox) (customcodec.CustomBox, error) {
-	return cases.NormalizeCustomParcelable(s.prefix, value), nil
+func (s customParcelableServer) Normalize(ctx context.Context, value *customcodec.CustomBox) (*customcodec.CustomBox, error) {
+	out := cases.NormalizeCustomParcelable(s.prefix, *value)
+	return &out, nil
 }
 
 func (s customParcelableServer) NormalizeNullable(ctx context.Context, value *customcodec.CustomBox) (*customcodec.CustomBox, error) {

@@ -53,7 +53,7 @@ func main() {
 		Code: 7,
 		Note: strPtr("seed"),
 	}
-	transform, doubled, payloadOut, err := svc.Transform(ctx, 11, payload)
+	transform, doubled, payloadOut, err := svc.Transform(ctx, 11, &payload)
 	if err != nil {
 		fatalf("transform: %v", err)
 	}
@@ -61,11 +61,11 @@ func main() {
 		fatalf("transform: got=%d want=12", transform)
 	}
 	wantDoubled := shared.BaselinePayload{Code: 22, Note: strPtr(*expectPrefix + ":doubled")}
-	if !reflect.DeepEqual(doubled, wantDoubled) {
+	if doubled == nil || !reflect.DeepEqual(*doubled, wantDoubled) {
 		fatalf("doubled: got=%#v want=%#v", doubled, wantDoubled)
 	}
 	wantPayloadOut := shared.BaselinePayload{Code: 29, Note: strPtr(*expectPrefix + ":seed")}
-	if !reflect.DeepEqual(payloadOut, wantPayloadOut) {
+	if payloadOut == nil || !reflect.DeepEqual(*payloadOut, wantPayloadOut) {
 		fatalf("payloadOut: got=%#v want=%#v", payloadOut, wantPayloadOut)
 	}
 

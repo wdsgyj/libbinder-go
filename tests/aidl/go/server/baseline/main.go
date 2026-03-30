@@ -26,18 +26,19 @@ func (baselineServer) EchoNullable(ctx context.Context, value *string) (*string,
 	return &reply, nil
 }
 
-func (baselineServer) Transform(ctx context.Context, input int32, payload shared.BaselinePayload) (int32, shared.BaselinePayload, shared.BaselinePayload, error) {
+func (baselineServer) Transform(ctx context.Context, input int32, payload *shared.BaselinePayload) (int32, *shared.BaselinePayload, *shared.BaselinePayload, error) {
 	doubled := shared.BaselinePayload{
 		Code: input * 2,
 		Note: strPtr("go:doubled"),
 	}
-	payload.Code += doubled.Code
-	if payload.Note == nil {
-		payload.Note = strPtr("go:default")
+	payloadValue := *payload
+	payloadValue.Code += doubled.Code
+	if payloadValue.Note == nil {
+		payloadValue.Note = strPtr("go:default")
 	} else {
-		payload.Note = strPtr("go:" + *payload.Note)
+		payloadValue.Note = strPtr("go:" + *payloadValue.Note)
 	}
-	return input + 1, doubled, payload, nil
+	return input + 1, &doubled, &payloadValue, nil
 }
 
 func main() {

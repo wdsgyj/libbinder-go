@@ -567,10 +567,11 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 			return nil
 		}
 		return &Type{
-			Kind:   TypeSlice,
-			GoExpr: "[]" + elem.GoExpr,
-			Elem:   elem,
-			IsList: true,
+			Kind:     TypeSlice,
+			GoExpr:   "[]" + elem.GoExpr,
+			Elem:     elem,
+			IsList:   true,
+			Nullable: true,
 		}
 	}
 
@@ -638,7 +639,7 @@ func (s *lowerState) lowerType(current *scope, ref ast.TypeRef) *Type {
 			GoExpr:   "[]" + elem.GoExpr,
 			Elem:     elem,
 			IsArray:  true,
-			Nullable: ref.Nullable,
+			Nullable: true,
 		}
 	}
 

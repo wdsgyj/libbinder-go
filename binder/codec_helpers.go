@@ -61,6 +61,9 @@ func ReadSlice[T any](p *Parcel, readElem func(*Parcel) (T, error)) ([]T, error)
 
 // WriteFixedSlice writes a fixed-size AIDL array payload.
 func WriteFixedSlice[T any](p *Parcel, values []T, size int, writeElem func(*Parcel, T) error) error {
+	if values == nil {
+		return fmt.Errorf("%w: fixed slice is null", ErrBadParcelable)
+	}
 	if len(values) != size {
 		return fmt.Errorf("%w: fixed slice length %d, want %d", ErrBadParcelable, len(values), size)
 	}
@@ -74,7 +77,7 @@ func ReadFixedSlice[T any](p *Parcel, size int, readElem func(*Parcel) (T, error
 		return nil, err
 	}
 	if values == nil {
-		return nil, nil
+		return nil, fmt.Errorf("%w: fixed slice is null", ErrBadParcelable)
 	}
 	if len(values) != size {
 		return nil, fmt.Errorf("%w: fixed slice length %d, want %d", ErrBadParcelable, len(values), size)

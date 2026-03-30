@@ -57,21 +57,24 @@ func (m matrixServer) FlipMode(ctx context.Context, mode shared.BasicMode) (shar
 	return cases.FlipMode(mode), nil
 }
 
-func (m matrixServer) NormalizeUnion(ctx context.Context, value shared.BasicUnion) (shared.BasicUnion, error) {
-	return cases.NormalizeUnion(m.prefix, value), nil
+func (m matrixServer) NormalizeUnion(ctx context.Context, value *shared.BasicUnion) (*shared.BasicUnion, error) {
+	out := cases.NormalizeUnion(m.prefix, *value)
+	return &out, nil
 }
 
-func (m matrixServer) NormalizeBundle(ctx context.Context, value shared.BasicBundle) (shared.BasicBundle, error) {
-	return cases.NormalizeBundle(m.prefix, value), nil
+func (m matrixServer) NormalizeBundle(ctx context.Context, value *shared.BasicBundle) (*shared.BasicBundle, error) {
+	out := cases.NormalizeBundle(m.prefix, *value)
+	return &out, nil
 }
 
-func (m matrixServer) NormalizeEnvelope(ctx context.Context, value shared.BasicEnvelope) (shared.BasicEnvelope, error) {
-	return cases.NormalizeEnvelope(m.prefix, value), nil
+func (m matrixServer) NormalizeEnvelope(ctx context.Context, value *shared.BasicEnvelope) (*shared.BasicEnvelope, error) {
+	out := cases.NormalizeEnvelope(m.prefix, *value)
+	return &out, nil
 }
 
-func (m matrixServer) ExpandBundle(ctx context.Context, input shared.BasicBundle, payload shared.BasicBundle) (int32, shared.BasicBundle, shared.BasicBundle, error) {
-	ret, doubled, payloadOut := cases.ExpandBundle(m.prefix, input, payload)
-	return ret, doubled, payloadOut, nil
+func (m matrixServer) ExpandBundle(ctx context.Context, input *shared.BasicBundle, payload *shared.BasicBundle) (int32, *shared.BasicBundle, *shared.BasicBundle, error) {
+	ret, doubled, payloadOut := cases.ExpandBundle(m.prefix, *input, *payload)
+	return ret, &doubled, &payloadOut, nil
 }
 
 func main() {

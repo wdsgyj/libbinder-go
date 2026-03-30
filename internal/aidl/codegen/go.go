@@ -1790,7 +1790,7 @@ func (r *goRenderer) renderHandlerCase(iface *gomodel.Interface, method *gomodel
 func (r *goRenderer) methodInputs(method *gomodel.Method) string {
 	parts := []string{"ctx context.Context"}
 	for _, arg := range method.Inputs {
-		parts = append(parts, fmt.Sprintf("%s %s", arg.GoName, r.typeExpr(arg.Type)))
+		parts = append(parts, fmt.Sprintf("%s %s", arg.GoName, r.methodInputTypeExpr(&arg)))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -1801,10 +1801,10 @@ func (r *goRenderer) methodReturns(method *gomodel.Method) string {
 	}
 	var parts []string
 	if method.Return != nil {
-		parts = append(parts, r.typeExpr(method.Return.Type))
+		parts = append(parts, r.methodValueTypeExpr(method.Return.Type))
 	}
 	for _, out := range method.Outputs {
-		parts = append(parts, r.typeExpr(out.Type))
+		parts = append(parts, r.methodValueTypeExpr(out.Type))
 	}
 	parts = append(parts, "error")
 	return strings.Join(parts, ", ")
@@ -1816,10 +1816,10 @@ func (r *goRenderer) methodErrorReturn(method *gomodel.Method, errExpr string) s
 	}
 	var parts []string
 	if method.Return != nil {
-		parts = append(parts, r.zeroExpr(method.Return.Type))
+		parts = append(parts, r.methodValueZeroExpr(method.Return.Type))
 	}
 	for _, out := range method.Outputs {
-		parts = append(parts, r.zeroExpr(out.Type))
+		parts = append(parts, r.methodValueZeroExpr(out.Type))
 	}
 	parts = append(parts, errExpr)
 	return strings.Join(parts, ", ")
@@ -1855,6 +1855,14 @@ func (r *goRenderer) methodArgWriteExpr(parcel string, value string, arg *gomode
 	if arg == nil {
 		return fmt.Sprintf("fmt.Errorf(\"%%w: nil method arg\", binder.ErrUnsupported)")
 	}
+	if r.methodInputUsesPointer(arg.Type) && !arg.Type.Nullable {
+		return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return fmt.Errorf("%%w: nil non-nullable argument %s", binder.ErrBadParcelable)
+	}
+	return %s
+}()`, value, arg.GoName, r.contextWriteExpr(parcel, "*"+value, arg.Type, registrar))
+	}
 	return r.contextWriteExpr(parcel, value, arg.Type, registrar)
 }
 
@@ -1862,14 +1870,119 @@ func (r *goRenderer) methodArgReadExpr(parcel string, arg *gomodel.Field) string
 	if arg == nil {
 		return fmt.Sprintf("func() (any, error) { return nil, fmt.Errorf(\"%%w: nil method arg\", binder.ErrUnsupported) }()")
 	}
+	if r.methodInputUsesPointer(arg.Type) && !arg.Type.Nullable {
+		return fmt.Sprintf(`func() (%s, error) {
+	present, err := %s.ReadInt32()
+	if err != nil {
+		return nil, err
+	}
+	if present == 0 {
+		return nil, binder.ErrBadParcelable
+	}
+	v, err := %s
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}()`, r.methodInputTypeExpr(arg), parcel, r.readExpr(parcel, arg.Type))
+	}
 	return r.contextReadExpr(parcel, arg.Type)
 }
 
+func (r *goRenderer) methodInputTypeExpr(arg *gomodel.Field) string {
+	if arg == nil || arg.Type == nil {
+		return ""
+	}
+	if r.methodInputUsesPointer(arg.Type) && !arg.Type.Nullable {
+		return "*" + r.typeExpr(arg.Type)
+	}
+	return r.typeExpr(arg.Type)
+}
+
+func (r *goRenderer) methodInputUsesPointer(typ *gomodel.Type) bool {
+	if typ == nil {
+		return false
+	}
+	switch typ.Kind {
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *goRenderer) methodValueTypeExpr(typ *gomodel.Type) string {
+	if typ == nil {
+		return ""
+	}
+	if r.methodValueUsesPointer(typ) {
+		base := r.nonNullableType(typ)
+		return "*" + r.typeExpr(base)
+	}
+	return r.typeExpr(typ)
+}
+
+func (r *goRenderer) methodValueZeroExpr(typ *gomodel.Type) string {
+	if typ == nil {
+		return "nil"
+	}
+	if r.methodValueUsesPointer(typ) {
+		return "nil"
+	}
+	return r.zeroExpr(typ)
+}
+
+func (r *goRenderer) methodValueUsesPointer(typ *gomodel.Type) bool {
+	if typ == nil {
+		return false
+	}
+	switch typ.Kind {
+	case gomodel.TypeParcelable, gomodel.TypeUnion:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *goRenderer) methodValueWriteExpr(parcel string, value string, typ *gomodel.Type, registrar string, typedObject bool) string {
+	if typ == nil {
+		return fmt.Sprintf("fmt.Errorf(\"%%w: nil method value type\", binder.ErrUnsupported)")
+	}
+	if r.methodValueUsesPointer(typ) && !typ.Nullable {
+		return fmt.Sprintf(`func() error {
+	if %s == nil {
+		return fmt.Errorf("%%w: nil non-nullable return value", binder.ErrBadParcelable)
+	}
+	return %s
+}()`, value, r.contextWriteExpr(parcel, "*"+value, typ, registrar))
+	}
 	return r.contextWriteExpr(parcel, value, typ, registrar)
 }
 
 func (r *goRenderer) methodValueReadExpr(parcel string, typ *gomodel.Type, typedObject bool) string {
+	if typ == nil {
+		return fmt.Sprintf("func() (any, error) { return nil, fmt.Errorf(\"%%w: nil method value type\", binder.ErrUnsupported) }()")
+	}
+	if r.methodValueUsesPointer(typ) {
+		base := r.nonNullableType(typ)
+		if typ.Nullable {
+			return r.contextReadExpr(parcel, typ)
+		}
+		return fmt.Sprintf(`func() (%s, error) {
+	present, err := %s.ReadInt32()
+	if err != nil {
+		return nil, err
+	}
+	if present == 0 {
+		return nil, binder.ErrBadParcelable
+	}
+	v, err := %s
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}()`, r.methodValueTypeExpr(typ), parcel, r.readExpr(parcel, base))
+	}
 	return r.contextReadExpr(parcel, typ)
 }
 

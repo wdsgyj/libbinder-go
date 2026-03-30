@@ -208,6 +208,38 @@ interface IService {
 	}
 }
 
+func TestLowerListAndArrayDefaultToNullableSliceSemantics(t *testing.T) {
+	src := `
+package demo;
+
+interface IService {
+  List<String> Tags();
+  int[] Ids();
+}
+`
+
+	file, err := parser.Parse("collections.aidl", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: "collections.aidl"})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+
+	methods := model.Interfaces[0].Methods
+	if len(methods) != 2 {
+		t.Fatalf("len(Methods) = %d, want 2", len(methods))
+	}
+	if !methods[0].Return.Type.Nullable {
+		t.Fatalf("List return Nullable = false, want true")
+	}
+	if !methods[1].Return.Type.Nullable {
+		t.Fatalf("array return Nullable = false, want true")
+	}
+}
+
 func TestLowerFixedArrayUsesSliceAPIWithLengthMetadata(t *testing.T) {
 	src := `
 package demo;

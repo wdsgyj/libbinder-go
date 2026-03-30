@@ -50,7 +50,7 @@ const ICustomParcelableServiceTransactionNormalize uint32 = 1
 const ICustomParcelableServiceTransactionNormalizeNullable uint32 = 2
 
 type ICustomParcelableService interface {
-	Normalize(ctx context.Context, value shared_customcodec.CustomBox) (shared_customcodec.CustomBox, error)
+	Normalize(ctx context.Context, value *shared_customcodec.CustomBox) (*shared_customcodec.CustomBox, error)
 	NormalizeNullable(ctx context.Context, value *shared_customcodec.CustomBox) (*shared_customcodec.CustomBox, error)
 }
 
@@ -108,44 +108,53 @@ func ReadICustomParcelableServiceFromParcel(p *binder.Parcel) (ICustomParcelable
 	return readICustomParcelableServiceFromParcel(p)
 }
 
-func (c *iCustomParcelableServiceClient) Normalize(ctx context.Context, value shared_customcodec.CustomBox) (shared_customcodec.CustomBox, error) {
+func (c *iCustomParcelableServiceClient) Normalize(ctx context.Context, value *shared_customcodec.CustomBox) (*shared_customcodec.CustomBox, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(ICustomParcelableServiceDescriptor); err != nil {
-		return *new(shared_customcodec.CustomBox), err
+		return nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if value == nil {
+			return fmt.Errorf("%w: nil non-nullable argument value", binder.ErrBadParcelable)
 		}
-		return shared_customcodec.WriteCustomBoxToParcel(req, value)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return shared_customcodec.WriteCustomBoxToParcel(req, *value)
+		}()
 	}(); err != nil {
-		return *new(shared_customcodec.CustomBox), err
+		return nil, err
 	}
 	resp, err := c.target.Transact(ctx, ICustomParcelableServiceTransactionNormalize, req, binder.FlagNone)
 	if err != nil {
-		return *new(shared_customcodec.CustomBox), err
+		return nil, err
 	}
 	if resp == nil {
-		return *new(shared_customcodec.CustomBox), binder.ErrBadParcelable
+		return nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return *new(shared_customcodec.CustomBox), err
+		return nil, err
 	}
-	ret, err := func() (shared_customcodec.CustomBox, error) {
+	ret, err := func() (*shared_customcodec.CustomBox, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(shared_customcodec.CustomBox), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(shared_customcodec.CustomBox), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return shared_customcodec.ReadCustomBoxFromParcel(resp)
+		v, err := shared_customcodec.ReadCustomBoxFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return *new(shared_customcodec.CustomBox), err
+		return nil, err
 	}
 	return ret, nil
 }
@@ -226,15 +235,19 @@ func (h *iCustomParcelableServiceHandler) HandleTransact(ctx context.Context, co
 	}
 	switch code {
 	case ICustomParcelableServiceTransactionNormalize:
-		valueArg, err := func() (shared_customcodec.CustomBox, error) {
+		valueArg, err := func() (*shared_customcodec.CustomBox, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(shared_customcodec.CustomBox), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(shared_customcodec.CustomBox), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return shared_customcodec.ReadCustomBoxFromParcel(data)
+			v, err := shared_customcodec.ReadCustomBoxFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -256,10 +269,15 @@ func (h *iCustomParcelableServiceHandler) HandleTransact(ctx context.Context, co
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if ret == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return shared_customcodec.WriteCustomBoxToParcel(reply, ret)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return shared_customcodec.WriteCustomBoxToParcel(reply, *ret)
+			}()
 		}(); err != nil {
 			return nil, err
 		}

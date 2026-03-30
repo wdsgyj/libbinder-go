@@ -43,12 +43,12 @@ func VerifyCustomParcelableService(ctx context.Context, svc shared.ICustomParcel
 		return fmt.Errorf("nil service")
 	}
 	input := CustomParcelableInput()
-	got, err := svc.Normalize(ctx, input)
+	got, err := svc.Normalize(ctx, &input)
 	if err != nil {
 		return fmt.Errorf("Normalize: %w", err)
 	}
 	want := NormalizeCustomParcelable(prefix, input)
-	if !reflect.DeepEqual(got, want) {
+	if got == nil || !reflect.DeepEqual(*got, want) {
 		return fmt.Errorf("Normalize = %#v, want %#v", got, want)
 	}
 	nilValue, err := svc.NormalizeNullable(ctx, nil)

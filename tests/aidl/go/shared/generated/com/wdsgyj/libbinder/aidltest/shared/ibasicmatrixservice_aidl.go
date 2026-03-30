@@ -71,10 +71,10 @@ type IBasicMatrixService interface {
 	DecoratePayloadMap(ctx context.Context, payloadMap map[string]BaselinePayload) (map[string]BaselinePayload, error)
 	DecoratePayloadBuckets(ctx context.Context, payloadBuckets map[string][]BaselinePayload) (map[string][]BaselinePayload, error)
 	FlipMode(ctx context.Context, mode BasicMode) (BasicMode, error)
-	NormalizeUnion(ctx context.Context, value BasicUnion) (BasicUnion, error)
-	NormalizeBundle(ctx context.Context, value BasicBundle) (BasicBundle, error)
-	NormalizeEnvelope(ctx context.Context, value BasicEnvelope) (BasicEnvelope, error)
-	ExpandBundle(ctx context.Context, input BasicBundle, payload BasicBundle) (int32, BasicBundle, BasicBundle, error)
+	NormalizeUnion(ctx context.Context, value *BasicUnion) (*BasicUnion, error)
+	NormalizeBundle(ctx context.Context, value *BasicBundle) (*BasicBundle, error)
+	NormalizeEnvelope(ctx context.Context, value *BasicEnvelope) (*BasicEnvelope, error)
+	ExpandBundle(ctx context.Context, input *BasicBundle, payload *BasicBundle) (int32, *BasicBundle, *BasicBundle, error)
 }
 
 type iBasicMatrixServiceClient struct {
@@ -487,195 +487,240 @@ func (c *iBasicMatrixServiceClient) FlipMode(ctx context.Context, mode BasicMode
 	return ret, nil
 }
 
-func (c *iBasicMatrixServiceClient) NormalizeUnion(ctx context.Context, value BasicUnion) (BasicUnion, error) {
+func (c *iBasicMatrixServiceClient) NormalizeUnion(ctx context.Context, value *BasicUnion) (*BasicUnion, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
-		return *new(BasicUnion), err
+		return nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if value == nil {
+			return fmt.Errorf("%w: nil non-nullable argument value", binder.ErrBadParcelable)
 		}
-		return writeBasicUnionToParcel(req, value)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicUnionToParcel(req, *value)
+		}()
 	}(); err != nil {
-		return *new(BasicUnion), err
+		return nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionNormalizeUnion, req, binder.FlagNone)
 	if err != nil {
-		return *new(BasicUnion), err
+		return nil, err
 	}
 	if resp == nil {
-		return *new(BasicUnion), binder.ErrBadParcelable
+		return nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return *new(BasicUnion), err
+		return nil, err
 	}
-	ret, err := func() (BasicUnion, error) {
+	ret, err := func() (*BasicUnion, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BasicUnion), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BasicUnion), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBasicUnionFromParcel(resp)
+		v, err := readBasicUnionFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return *new(BasicUnion), err
+		return nil, err
 	}
 	return ret, nil
 }
 
-func (c *iBasicMatrixServiceClient) NormalizeBundle(ctx context.Context, value BasicBundle) (BasicBundle, error) {
+func (c *iBasicMatrixServiceClient) NormalizeBundle(ctx context.Context, value *BasicBundle) (*BasicBundle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
-		return *new(BasicBundle), err
+		return nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if value == nil {
+			return fmt.Errorf("%w: nil non-nullable argument value", binder.ErrBadParcelable)
 		}
-		return writeBasicBundleToParcel(req, value)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicBundleToParcel(req, *value)
+		}()
 	}(); err != nil {
-		return *new(BasicBundle), err
+		return nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionNormalizeBundle, req, binder.FlagNone)
 	if err != nil {
-		return *new(BasicBundle), err
+		return nil, err
 	}
 	if resp == nil {
-		return *new(BasicBundle), binder.ErrBadParcelable
+		return nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return *new(BasicBundle), err
+		return nil, err
 	}
-	ret, err := func() (BasicBundle, error) {
+	ret, err := func() (*BasicBundle, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BasicBundle), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BasicBundle), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBasicBundleFromParcel(resp)
+		v, err := readBasicBundleFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return *new(BasicBundle), err
+		return nil, err
 	}
 	return ret, nil
 }
 
-func (c *iBasicMatrixServiceClient) NormalizeEnvelope(ctx context.Context, value BasicEnvelope) (BasicEnvelope, error) {
+func (c *iBasicMatrixServiceClient) NormalizeEnvelope(ctx context.Context, value *BasicEnvelope) (*BasicEnvelope, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
-		return *new(BasicEnvelope), err
+		return nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if value == nil {
+			return fmt.Errorf("%w: nil non-nullable argument value", binder.ErrBadParcelable)
 		}
-		return writeBasicEnvelopeToParcel(req, value)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicEnvelopeToParcel(req, *value)
+		}()
 	}(); err != nil {
-		return *new(BasicEnvelope), err
+		return nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionNormalizeEnvelope, req, binder.FlagNone)
 	if err != nil {
-		return *new(BasicEnvelope), err
+		return nil, err
 	}
 	if resp == nil {
-		return *new(BasicEnvelope), binder.ErrBadParcelable
+		return nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return *new(BasicEnvelope), err
+		return nil, err
 	}
-	ret, err := func() (BasicEnvelope, error) {
+	ret, err := func() (*BasicEnvelope, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BasicEnvelope), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BasicEnvelope), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBasicEnvelopeFromParcel(resp)
+		v, err := readBasicEnvelopeFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return *new(BasicEnvelope), err
+		return nil, err
 	}
 	return ret, nil
 }
 
-func (c *iBasicMatrixServiceClient) ExpandBundle(ctx context.Context, input BasicBundle, payload BasicBundle) (int32, BasicBundle, BasicBundle, error) {
+func (c *iBasicMatrixServiceClient) ExpandBundle(ctx context.Context, input *BasicBundle, payload *BasicBundle) (int32, *BasicBundle, *BasicBundle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if input == nil {
+			return fmt.Errorf("%w: nil non-nullable argument input", binder.ErrBadParcelable)
 		}
-		return writeBasicBundleToParcel(req, input)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicBundleToParcel(req, *input)
+		}()
 	}(); err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if payload == nil {
+			return fmt.Errorf("%w: nil non-nullable argument payload", binder.ErrBadParcelable)
 		}
-		return writeBasicBundleToParcel(req, payload)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicBundleToParcel(req, *payload)
+		}()
 	}(); err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionExpandBundle, req, binder.FlagNone)
 	if err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	if resp == nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), binder.ErrBadParcelable
+		return int32(0), nil, nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	ret, err := resp.ReadInt32()
 	if err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
-	doubledValue, err := func() (BasicBundle, error) {
+	doubledValue, err := func() (*BasicBundle, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BasicBundle), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BasicBundle), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBasicBundleFromParcel(resp)
+		v, err := readBasicBundleFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
-	payloadOutValue, err := func() (BasicBundle, error) {
+	payloadOutValue, err := func() (*BasicBundle, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BasicBundle), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BasicBundle), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBasicBundleFromParcel(resp)
+		v, err := readBasicBundleFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return int32(0), *new(BasicBundle), *new(BasicBundle), err
+		return int32(0), nil, nil, err
 	}
 	return ret, doubledValue, payloadOutValue, nil
 }
@@ -1033,15 +1078,19 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 		}
 		return reply, nil
 	case IBasicMatrixServiceTransactionNormalizeUnion:
-		valueArg, err := func() (BasicUnion, error) {
+		valueArg, err := func() (*BasicUnion, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BasicUnion), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BasicUnion), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBasicUnionFromParcel(data)
+			v, err := readBasicUnionFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -1063,24 +1112,33 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if ret == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBasicUnionToParcel(reply, ret)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicUnionToParcel(reply, *ret)
+			}()
 		}(); err != nil {
 			return nil, err
 		}
 		return reply, nil
 	case IBasicMatrixServiceTransactionNormalizeBundle:
-		valueArg, err := func() (BasicBundle, error) {
+		valueArg, err := func() (*BasicBundle, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BasicBundle), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BasicBundle), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBasicBundleFromParcel(data)
+			v, err := readBasicBundleFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -1102,24 +1160,33 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if ret == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBasicBundleToParcel(reply, ret)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicBundleToParcel(reply, *ret)
+			}()
 		}(); err != nil {
 			return nil, err
 		}
 		return reply, nil
 	case IBasicMatrixServiceTransactionNormalizeEnvelope:
-		valueArg, err := func() (BasicEnvelope, error) {
+		valueArg, err := func() (*BasicEnvelope, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BasicEnvelope), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BasicEnvelope), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBasicEnvelopeFromParcel(data)
+			v, err := readBasicEnvelopeFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -1141,37 +1208,50 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if ret == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBasicEnvelopeToParcel(reply, ret)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicEnvelopeToParcel(reply, *ret)
+			}()
 		}(); err != nil {
 			return nil, err
 		}
 		return reply, nil
 	case IBasicMatrixServiceTransactionExpandBundle:
-		inputArg, err := func() (BasicBundle, error) {
+		inputArg, err := func() (*BasicBundle, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BasicBundle), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BasicBundle), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBasicBundleFromParcel(data)
+			v, err := readBasicBundleFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
 		}
-		payloadArg, err := func() (BasicBundle, error) {
+		payloadArg, err := func() (*BasicBundle, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BasicBundle), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BasicBundle), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBasicBundleFromParcel(data)
+			v, err := readBasicBundleFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -1196,18 +1276,28 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if doubledValue == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBasicBundleToParcel(reply, doubledValue)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicBundleToParcel(reply, *doubledValue)
+			}()
 		}(); err != nil {
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if payloadOutValue == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBasicBundleToParcel(reply, payloadOutValue)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicBundleToParcel(reply, *payloadOutValue)
+			}()
 		}(); err != nil {
 			return nil, err
 		}

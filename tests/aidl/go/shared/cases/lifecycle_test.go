@@ -50,8 +50,10 @@ func (s baselineLifecycleService) EchoNullable(ctx context.Context, value *strin
 	return lifecycleStringPtr(s.prefix + ":" + *value), nil
 }
 
-func (s baselineLifecycleService) Transform(ctx context.Context, input int32, payload shared.BaselinePayload) (int32, shared.BaselinePayload, shared.BaselinePayload, error) {
-	return input + 1, shared.BaselinePayload{}, payload, nil
+func (s baselineLifecycleService) Transform(ctx context.Context, input int32, payload *shared.BaselinePayload) (int32, *shared.BaselinePayload, *shared.BaselinePayload, error) {
+	doubled := shared.BaselinePayload{}
+	payloadValue := *payload
+	return input + 1, &doubled, &payloadValue, nil
 }
 
 type lifecycleServiceManager struct {

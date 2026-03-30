@@ -199,24 +199,25 @@ func (b fakeBinder) Close() error { return nil }
 
 type echoImpl struct{}
 
-func (echoImpl) Echo(ctx context.Context, msg string, payload Payload) (*string, int32, Payload, error) {
+func (echoImpl) Echo(ctx context.Context, msg string, payload *Payload) (*string, int32, *Payload, error) {
 	reply := "echo:" + msg
-	payload.Count++
-	payload.Kind = KindTwo
-	payload.Result = Result{
+	payloadValue := *payload
+	payloadValue.Count++
+	payloadValue.Kind = KindTwo
+	payloadValue.Result = Result{
 		Tag:  ResultTagText,
 		Text: &reply,
 	}
-	payload.Ids = append(payload.Ids, 9)
-	payload.Pair = []int32{7, 8}
-	return &reply, 200, payload, nil
+	payloadValue.Ids = append(payloadValue.Ids, 9)
+	payloadValue.Pair = []int32{7, 8}
+	return &reply, 200, &payloadValue, nil
 }
 
 func TestGeneratedClientServerRoundTrip(t *testing.T) {
 	note := "hello"
 	client := NewIEchoClient(fakeBinder{handler: NewIEchoHandler(echoImpl{})})
 
-	got, code, payloadOut, err := client.Echo(context.Background(), "ping", Payload{
+	got, code, payloadOut, err := client.Echo(context.Background(), "ping", &Payload{
 		Count: 1,
 		Note:  &note,
 		Kind:  KindOne,
@@ -236,8 +237,8 @@ func TestGeneratedClientServerRoundTrip(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("code = %d, want 200", code)
 	}
-	if payloadOut.Count != 2 {
-		t.Fatalf("payloadOut.Count = %d, want 2", payloadOut.Count)
+	if payloadOut == nil || payloadOut.Count != 2 {
+		t.Fatalf("payloadOut = %#v, want Count=2", payloadOut)
 	}
 	if payloadOut.Kind != KindTwo {
 		t.Fatalf("payloadOut.Kind = %v, want KindTwo", payloadOut.Kind)
@@ -894,39 +895,41 @@ func (callbackImpl) Echo(ctx context.Context, msg string) (string, error) {
 
 type serviceImpl struct{}
 
-func (serviceImpl) Exchange(ctx context.Context, payload Payload) (Result, Payload, error) {
+func (serviceImpl) Exchange(ctx context.Context, payload *Payload) (*Result, *Payload, error) {
 	if payload.Cb == nil {
-		return Result{}, Payload{}, fmt.Errorf("nil payload cb")
+		return nil, nil, fmt.Errorf("nil payload cb")
 	}
 	if got, err := payload.Cb.Echo(ctx, "srv"); err != nil || got != "cb:srv" {
-		return Result{}, Payload{}, fmt.Errorf("payload cb = (%q, %v)", got, err)
+		return nil, nil, fmt.Errorf("payload cb = (%q, %v)", got, err)
 	}
 	if payload.Raw == nil {
-		return Result{}, Payload{}, fmt.Errorf("nil raw binder")
+		return nil, nil, fmt.Errorf("nil raw binder")
 	}
 	if desc, err := payload.Raw.Descriptor(ctx); err != nil || desc != ICallbackDescriptor {
-		return Result{}, Payload{}, fmt.Errorf("raw.Descriptor = (%q, %v)", desc, err)
+		return nil, nil, fmt.Errorf("raw.Descriptor = (%q, %v)", desc, err)
 	}
 	if payload.Fd.FD() < 0 {
-		return Result{}, Payload{}, fmt.Errorf("invalid fd %d", payload.Fd.FD())
+		return nil, nil, fmt.Errorf("invalid fd %d", payload.Fd.FD())
 	}
 	if payload.Pfd == nil || payload.Pfd.FD() < 0 {
-		return Result{}, Payload{}, fmt.Errorf("invalid pfd %#v", payload.Pfd)
+		return nil, nil, fmt.Errorf("invalid pfd %#v", payload.Pfd)
 	}
 	if payload.Nested.Tag != ResultTagCb || payload.Nested.Cb == nil {
-		return Result{}, Payload{}, fmt.Errorf("unexpected nested union %#v", payload.Nested)
+		return nil, nil, fmt.Errorf("unexpected nested union %#v", payload.Nested)
 	}
 	if got, err := payload.Nested.Cb.Echo(ctx, "nested"); err != nil || got != "cb:nested" {
-		return Result{}, Payload{}, fmt.Errorf("nested cb = (%q, %v)", got, err)
+		return nil, nil, fmt.Errorf("nested cb = (%q, %v)", got, err)
 	}
-	payload.Nested = Result{
+	payloadValue := *payload
+	payloadValue.Nested = Result{
 		Tag: ResultTagPfd,
 		Pfd: payload.Pfd,
 	}
-	return Result{
+	result := Result{
 		Tag: ResultTagFd,
 		Fd:  payload.Fd,
-	}, payload, nil
+	}
+	return &result, &payloadValue, nil
 }
 
 func TestGeneratedParcelableUnionBinderAndFDRoundTrip(t *testing.T) {
@@ -961,7 +964,7 @@ func TestGeneratedParcelableUnionBinderAndFDRoundTrip(t *testing.T) {
 	pfdValue := binder.NewParcelFileDescriptor(int(pfdReader.Fd()))
 	defer pfdValue.Close()
 
-	result, echoed, err := client.Exchange(context.Background(), Payload{
+	result, echoed, err := client.Exchange(context.Background(), &Payload{
 		Cb:  callbackImpl{},
 		Raw: raw,
 		Fd:  binder.NewFileDescriptor(int(fdReader.Fd())),
@@ -975,10 +978,10 @@ func TestGeneratedParcelableUnionBinderAndFDRoundTrip(t *testing.T) {
 		t.Fatalf("Exchange: %v", err)
 	}
 
-	if result.Tag != ResultTagFd || result.Fd.FD() != int(fdReader.Fd()) {
+	if result == nil || result.Tag != ResultTagFd || result.Fd.FD() != int(fdReader.Fd()) {
 		t.Fatalf("result = %#v, want fd tag with %d", result, fdReader.Fd())
 	}
-	if echoed.Cb == nil {
+	if echoed == nil || echoed.Cb == nil {
 		t.Fatal("echoed.Cb = nil, want callback")
 	}
 	if got, err := echoed.Cb.Echo(context.Background(), "client"); err != nil || got != "cb:client" {
@@ -1176,15 +1179,16 @@ func (b fakeBinder) Close() error { return nil }
 
 type serviceImpl struct{}
 
-func (serviceImpl) Echo(ctx context.Context, value customcodec.FooValue) (*customcodec.FooValue, error) {
-	value.Count++
-	return &value, nil
+func (serviceImpl) Echo(ctx context.Context, value *customcodec.FooValue) (*customcodec.FooValue, error) {
+	valueCopy := *value
+	valueCopy.Count++
+	return &valueCopy, nil
 }
 
 func TestGeneratedCustomParcelableRoundTrip(t *testing.T) {
 	client := NewIServiceClient(fakeBinder{handler: NewIServiceHandler(serviceImpl{})})
 
-	got, err := client.Echo(context.Background(), customcodec.FooValue{Count: 41})
+	got, err := client.Echo(context.Background(), &customcodec.FooValue{Count: 41})
 	if err != nil {
 		t.Fatalf("Echo: %v", err)
 	}
@@ -1356,29 +1360,30 @@ type serviceImpl struct {
 	lastCode int32
 }
 
-func (s *serviceImpl) Send(ctx context.Context, value customcodec.FooValue, data string, code int32) error {
+func (s *serviceImpl) Send(ctx context.Context, value *customcodec.FooValue, data string, code int32) error {
 	s.lastData = data
 	s.lastCode = code
 	return nil
 }
 
-func (s *serviceImpl) Echo(ctx context.Context, value customcodec.FooValue, data string, code int32) (*customcodec.FooValue, error) {
-	value.Count += int32(len(data)) + code
-	return &value, nil
+func (s *serviceImpl) Echo(ctx context.Context, value *customcodec.FooValue, data string, code int32) (*customcodec.FooValue, error) {
+	valueCopy := *value
+	valueCopy.Count += int32(len(data)) + code
+	return &valueCopy, nil
 }
 
 func TestGeneratedExternalCustomParcelableRoundTrip(t *testing.T) {
 	impl := &serviceImpl{}
 	client := NewIServiceClient(fakeBinder{handler: NewIServiceHandler(impl)})
 
-	if err := client.Send(context.Background(), customcodec.FooValue{Count: 1}, "abc", 7); err != nil {
+	if err := client.Send(context.Background(), &customcodec.FooValue{Count: 1}, "abc", 7); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if impl.lastData != "abc" || impl.lastCode != 7 {
 		t.Fatalf("impl state = %#v, want data=abc code=7", impl)
 	}
 
-	got, err := client.Echo(context.Background(), customcodec.FooValue{Count: 10}, "abcd", 2)
+	got, err := client.Echo(context.Background(), &customcodec.FooValue{Count: 10}, "abcd", 2)
 	if err != nil {
 		t.Fatalf("Echo: %v", err)
 	}
@@ -1868,19 +1873,21 @@ type callbackImpl struct {
 	seen []int32
 }
 
-func (c *callbackImpl) Done(ctx context.Context, value alpha.Foo) (alpha.Foo, error) {
+func (c *callbackImpl) Done(ctx context.Context, value *alpha.Foo) (*alpha.Foo, error) {
 	c.seen = append(c.seen, value.Count)
-	return alpha.Foo{Count: value.Count + 1}, nil
+	out := alpha.Foo{Count: value.Count + 1}
+	return &out, nil
 }
 
 type serviceImpl struct{}
 
-func (serviceImpl) Echo(ctx context.Context, value alpha.Foo, cb gamma.ICallback) (alpha.Foo, error) {
-	reply, err := cb.Done(ctx, alpha.Foo{Count: value.Count + 10})
+func (serviceImpl) Echo(ctx context.Context, value *alpha.Foo, cb gamma.ICallback) (*alpha.Foo, error) {
+	reply, err := cb.Done(ctx, &alpha.Foo{Count: value.Count + 10})
 	if err != nil {
-		return alpha.Foo{}, err
+		return nil, err
 	}
-	return alpha.Foo{Count: reply.Count + 100}, nil
+	out := alpha.Foo{Count: reply.Count + 100}
+	return &out, nil
 }
 
 func TestCrossPackageGeneratedRoundTrip(t *testing.T) {
@@ -1891,15 +1898,15 @@ func TestCrossPackageGeneratedRoundTrip(t *testing.T) {
 	})
 
 	cb := &callbackImpl{}
-	got, err := client.Echo(context.Background(), alpha.Foo{Count: 7}, cb)
+	got, err := client.Echo(context.Background(), &alpha.Foo{Count: 7}, cb)
 	if err != nil {
 		t.Fatalf("Echo: %v", err)
 	}
 	if len(cb.seen) != 1 || cb.seen[0] != 17 {
 		t.Fatalf("callback seen = %#v, want [17]", cb.seen)
 	}
-	if got.Count != 118 {
-		t.Fatalf("got.Count = %d, want 118", got.Count)
+	if got == nil || got.Count != 118 {
+		t.Fatalf("got = %#v, want Count=118", got)
 	}
 }
 `

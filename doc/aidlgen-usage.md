@@ -151,7 +151,7 @@ Go package 名默认取 AIDL package 最后一个 segment，并做净化：
 | `String` | `string` | 非 nullable |
 | `@nullable String` | `*string` | `nil` 表示 null |
 | `T[]` | `[]T` | slice，`nil` 表示 null |
-| `T[N]` | `[]T` | 公开 API 使用 slice，生成代码强制校验长度必须等于 `N` |
+| `T[N]` | `[]T` | 公开 API 使用 slice，生成代码强制校验长度必须等于 `N`，且 `nil` 非法 |
 | `List<T>` | `[]T` | Go 层与动态数组共用 slice |
 | `Map<K,V>` | `map[K]V` | typed map |
 | `Map` | `map[any]any` | raw map / dynamic map |
@@ -185,11 +185,35 @@ Go package 名默认取 AIDL package 最后一个 segment，并做净化：
 
 这类会在 lowering 阶段报诊断。
 
-### 6.2 `List<T>` 与 `T[]`
+### 6.2 方法入参/返回值的指针规则
+
+为了避免大对象值拷贝，方法边界会在公开字段映射之外再套一层 Go 风格约束：
+
+- 非 nullable structured `parcelable` 入参：`*T`
+- 非 nullable `union` 入参：`*T`
+- 非 nullable custom parcelable 入参：`*T`
+- 非 nullable structured `parcelable` 返回值 / `out` / `inout` 输出：`*T`
+- 非 nullable `union` 返回值 / `out` / `inout` 输出：`*T`
+- 非 nullable custom parcelable 返回值 / `out` / `inout` 输出：`*T`
+- `@nullable` 版本仍然是 `*T`，但此时 `nil` 表示 wire 上的 null
+
+注意：
+
+- 对非 nullable 方法入参，`nil` 不是合法值
+- 对非 nullable 方法返回值 / `out` / `inout` 输出，`nil` 也不是合法值
+- client 侧传入 `nil`、或读到 wire null，都会返回 `binder.ErrBadParcelable`
+- server 侧收到非法 null、或业务实现返回了非法 `nil`，也会返回 `binder.ErrBadParcelable`
+- 这个规则只针对“方法边界”；parcelable 字段仍按上表映射
+### 6.3 `List<T>` 与 `T[]`
 
 两者在 Go API 上都映射成 `[]T`，但生成器内部仍区分来源，以便保持 wire codec 语义一致。
 
-### 6.3 `Map`
+- `List<T>` / `T[]` 用 `nil` 表示 null，零长度 slice 表示 empty
+- 不会额外生成 `*[]T`
+- 也不会因为元素是 parcelable / union / custom parcelable，就默认改成 `[]*T`
+- `T[N]` 仍然使用 `[]T`，但 `nil` 和长度不匹配都会被拒绝
+
+### 6.4 `Map`
 
 支持两种形式：
 
@@ -210,11 +234,11 @@ map[any]any
 - `raw Map` 的 Go 侧已支持
 - 但 Android Java SDK AIDL 工具本身不接受很多 untyped `Map` 接口定义，所以 Java 侧常需要手写 Binder shim 才能互通
 
-### 6.4 `@utf8InCpp`
+### 6.5 `@utf8InCpp`
 
 `@utf8InCpp String` 在 Go API 上仍然表现为 `string` 或 `*string`，不会引入额外 Go 类型。
 
-### 6.5 enum / union
+### 6.6 enum / union
 
 示例：
 
@@ -239,7 +263,7 @@ type Result struct {
 }
 ```
 
-### 6.6 non-structured parcelable
+### 6.7 non-structured parcelable
 
 对这种声明：
 
@@ -278,9 +302,11 @@ interface IFoo {
 
 ```go
 type IFoo interface {
-    Call(ctx context.Context, a int32, c Payload) (int32, string, Payload, error)
+    Call(ctx context.Context, a int32, c *Payload) (int32, string, *Payload, error)
 }
 ```
+
+其中 `c *Payload` 和返回里的 `*Payload` 都是方法边界规则带来的特例：虽然 `Payload` 本身在公开类型映射中是值类型，但作为非 nullable 方法输入/输出时会用 `*Payload` 来降低拷贝成本，并在运行时拒绝 `nil`。
 
 ### 7.2 `oneway`
 
@@ -411,7 +437,7 @@ gen/demo/iecho_aidl.go
 
 ```go
 type IEcho interface {
-    Echo(ctx context.Context, msg string, payload Payload) (*string, int32, Payload, error)
+    Echo(ctx context.Context, msg string, payload *Payload) (*string, int32, *Payload, error)
 }
 ```
 
@@ -444,6 +470,14 @@ package demo;
 
 interface IService {
   Payload Echo(in Payload value);
+}
+```
+
+对应生成的业务接口大致为：
+
+```go
+type IService interface {
+    Echo(ctx context.Context, value *Payload) (*Payload, error)
 }
 ```
 

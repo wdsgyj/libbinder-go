@@ -307,27 +307,37 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		return err
 	}
 
-	union, err := svc.NormalizeUnion(ctx, input.Value)
+	union, err := svc.NormalizeUnion(ctx, &input.Value)
 	if err != nil {
 		return fmt.Errorf("NormalizeUnion: %w", err)
 	}
-	if err := equal("NormalizeUnion", union, NormalizeUnion(prefix, input.Value)); err != nil {
+	if union == nil {
+		return fmt.Errorf("NormalizeUnion = nil")
+	}
+	if err := equal("NormalizeUnion", *union, NormalizeUnion(prefix, input.Value)); err != nil {
 		return err
 	}
 
-	bundle, err := svc.NormalizeBundle(ctx, input)
+	bundle, err := svc.NormalizeBundle(ctx, &input)
 	if err != nil {
 		return fmt.Errorf("NormalizeBundle: %w", err)
 	}
-	if err := equal("NormalizeBundle", bundle, NormalizeBundle(prefix, input)); err != nil {
+	if bundle == nil {
+		return fmt.Errorf("NormalizeBundle = nil")
+	}
+	if err := equal("NormalizeBundle", *bundle, NormalizeBundle(prefix, input)); err != nil {
 		return err
 	}
 
-	envelope, err := svc.NormalizeEnvelope(ctx, BasicMatrixInputEnvelope())
+	envelopeInput := BasicMatrixInputEnvelope()
+	envelope, err := svc.NormalizeEnvelope(ctx, &envelopeInput)
 	if err != nil {
 		return fmt.Errorf("NormalizeEnvelope: %w", err)
 	}
-	if err := equal("NormalizeEnvelope", envelope, NormalizeEnvelope(prefix, BasicMatrixInputEnvelope())); err != nil {
+	if envelope == nil {
+		return fmt.Errorf("NormalizeEnvelope = nil")
+	}
+	if err := equal("NormalizeEnvelope", *envelope, NormalizeEnvelope(prefix, BasicMatrixInputEnvelope())); err != nil {
 		return err
 	}
 
@@ -352,7 +362,7 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		},
 	}
 
-	ret, doubled, payloadOut, err := svc.ExpandBundle(ctx, input, second)
+	ret, doubled, payloadOut, err := svc.ExpandBundle(ctx, &input, &second)
 	if err != nil {
 		return fmt.Errorf("ExpandBundle: %w", err)
 	}
@@ -360,10 +370,16 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 	if err := equal("ExpandBundle.ret", ret, wantRet); err != nil {
 		return err
 	}
-	if err := equal("ExpandBundle.doubled", doubled, wantDoubled); err != nil {
+	if doubled == nil {
+		return fmt.Errorf("ExpandBundle.doubled = nil")
+	}
+	if err := equal("ExpandBundle.doubled", *doubled, wantDoubled); err != nil {
 		return err
 	}
-	if err := equal("ExpandBundle.payload", payloadOut, wantPayloadOut); err != nil {
+	if payloadOut == nil {
+		return fmt.Errorf("ExpandBundle.payload = nil")
+	}
+	if err := equal("ExpandBundle.payload", *payloadOut, wantPayloadOut); err != nil {
 		return err
 	}
 
@@ -458,11 +474,14 @@ func VerifyBasicMatrixPerformance(ctx context.Context, svc shared.IBasicMatrixSe
 	}
 
 	envelope := BasicMatrixLargeEnvelope()
-	gotEnvelope, err := svc.NormalizeEnvelope(ctx, envelope)
+	gotEnvelope, err := svc.NormalizeEnvelope(ctx, &envelope)
 	if err != nil {
 		return fmt.Errorf("NormalizeEnvelope(large): %w", err)
 	}
-	if err := equal("NormalizeEnvelope.large", gotEnvelope, NormalizeEnvelope(prefix, envelope)); err != nil {
+	if gotEnvelope == nil {
+		return fmt.Errorf("NormalizeEnvelope.large = nil")
+	}
+	if err := equal("NormalizeEnvelope.large", *gotEnvelope, NormalizeEnvelope(prefix, envelope)); err != nil {
 		return err
 	}
 

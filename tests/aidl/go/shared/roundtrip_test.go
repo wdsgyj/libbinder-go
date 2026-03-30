@@ -52,17 +52,18 @@ func (baselineImpl) EchoNullable(ctx context.Context, value *string) (*string, e
 	return &reply, nil
 }
 
-func (baselineImpl) Transform(ctx context.Context, input int32, payload shared.BaselinePayload) (int32, shared.BaselinePayload, shared.BaselinePayload, error) {
+func (baselineImpl) Transform(ctx context.Context, input int32, payload *shared.BaselinePayload) (int32, *shared.BaselinePayload, *shared.BaselinePayload, error) {
 	doubled := shared.BaselinePayload{
 		Code: input * 2,
 		Note: stringPtr("echo:doubled"),
 	}
-	payload.Code += doubled.Code
-	if payload.Note != nil {
-		reply := "echo:" + *payload.Note
-		payload.Note = &reply
+	payloadValue := *payload
+	payloadValue.Code += doubled.Code
+	if payloadValue.Note != nil {
+		reply := "echo:" + *payloadValue.Note
+		payloadValue.Note = &reply
 	}
-	return input + 1, doubled, payload, nil
+	return input + 1, &doubled, &payloadValue, nil
 }
 
 func TestGeneratedBaselineServiceRoundTrip(t *testing.T) {
@@ -86,24 +87,25 @@ func TestGeneratedBaselineServiceRoundTrip(t *testing.T) {
 	}
 
 	seed := "seed"
-	ret, doubled, payload, err := client.Transform(context.Background(), 11, shared.BaselinePayload{
+	input := shared.BaselinePayload{
 		Code: 7,
 		Note: &seed,
-	})
+	}
+	ret, doubled, payload, err := client.Transform(context.Background(), 11, &input)
 	if err != nil {
 		t.Fatalf("Transform: %v", err)
 	}
 	if ret != 12 {
 		t.Fatalf("Transform ret = %d, want 12", ret)
 	}
-	if doubled.Code != 22 {
-		t.Fatalf("Transform doubled.Code = %d, want 22", doubled.Code)
+	if doubled == nil || doubled.Code != 22 {
+		t.Fatalf("Transform doubled = %#v, want Code=22", doubled)
 	}
 	if doubled.Note == nil || *doubled.Note != "echo:doubled" {
 		t.Fatalf("Transform doubled.Note = %#v, want echo:doubled", doubled.Note)
 	}
-	if payload.Code != 29 {
-		t.Fatalf("Transform payload.Code = %d, want 29", payload.Code)
+	if payload == nil || payload.Code != 29 {
+		t.Fatalf("Transform payload = %#v, want Code=29", payload)
 	}
 	if payload.Note == nil || *payload.Note != "echo:seed" {
 		t.Fatalf("Transform payload.Note = %#v, want echo:seed", payload.Note)

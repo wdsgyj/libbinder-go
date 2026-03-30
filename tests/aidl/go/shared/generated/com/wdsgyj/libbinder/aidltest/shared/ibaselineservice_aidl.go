@@ -52,7 +52,7 @@ const IBaselineServiceTransactionTransform uint32 = 3
 type IBaselineService interface {
 	Ping(ctx context.Context) (bool, error)
 	EchoNullable(ctx context.Context, value *string) (*string, error)
-	Transform(ctx context.Context, input int32, payload BaselinePayload) (int32, BaselinePayload, BaselinePayload, error)
+	Transform(ctx context.Context, input int32, payload *BaselinePayload) (int32, *BaselinePayload, *BaselinePayload, error)
 }
 
 type iBaselineServiceClient struct {
@@ -162,64 +162,77 @@ func (c *iBaselineServiceClient) EchoNullable(ctx context.Context, value *string
 	return ret, nil
 }
 
-func (c *iBaselineServiceClient) Transform(ctx context.Context, input int32, payload BaselinePayload) (int32, BaselinePayload, BaselinePayload, error) {
+func (c *iBaselineServiceClient) Transform(ctx context.Context, input int32, payload *BaselinePayload) (int32, *BaselinePayload, *BaselinePayload, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req := binder.NewParcel()
 	if err := req.WriteInterfaceToken(IBaselineServiceDescriptor); err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	if err := req.WriteInt32(input); err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	if err := func() error {
-		if err := req.WriteInt32(1); err != nil {
-			return err
+		if payload == nil {
+			return fmt.Errorf("%w: nil non-nullable argument payload", binder.ErrBadParcelable)
 		}
-		return writeBaselinePayloadToParcel(req, payload)
+		return func() error {
+			if err := req.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBaselinePayloadToParcel(req, *payload)
+		}()
 	}(); err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	resp, err := c.target.Transact(ctx, IBaselineServiceTransactionTransform, req, binder.FlagNone)
 	if err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	if resp == nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), binder.ErrBadParcelable
+		return int32(0), nil, nil, binder.ErrBadParcelable
 	}
 	if err := binder.ReadException(resp); err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	ret, err := resp.ReadInt32()
 	if err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
-	doubledValue, err := func() (BaselinePayload, error) {
+	doubledValue, err := func() (*BaselinePayload, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BaselinePayload), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BaselinePayload), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBaselinePayloadFromParcel(resp)
+		v, err := readBaselinePayloadFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
-	payloadOutValue, err := func() (BaselinePayload, error) {
+	payloadOutValue, err := func() (*BaselinePayload, error) {
 		present, err := resp.ReadInt32()
 		if err != nil {
-			return *new(BaselinePayload), err
+			return nil, err
 		}
 		if present == 0 {
-			return *new(BaselinePayload), nil
+			return nil, binder.ErrBadParcelable
 		}
-		return readBaselinePayloadFromParcel(resp)
+		v, err := readBaselinePayloadFromParcel(resp)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	}()
 	if err != nil {
-		return int32(0), *new(BaselinePayload), *new(BaselinePayload), err
+		return int32(0), nil, nil, err
 	}
 	return ret, doubledValue, payloadOutValue, nil
 }
@@ -301,15 +314,19 @@ func (h *iBaselineServiceHandler) HandleTransact(ctx context.Context, code uint3
 		if err != nil {
 			return nil, err
 		}
-		payloadArg, err := func() (BaselinePayload, error) {
+		payloadArg, err := func() (*BaselinePayload, error) {
 			present, err := data.ReadInt32()
 			if err != nil {
-				return *new(BaselinePayload), err
+				return nil, err
 			}
 			if present == 0 {
-				return *new(BaselinePayload), nil
+				return nil, binder.ErrBadParcelable
 			}
-			return readBaselinePayloadFromParcel(data)
+			v, err := readBaselinePayloadFromParcel(data)
+			if err != nil {
+				return nil, err
+			}
+			return &v, nil
 		}()
 		if err != nil {
 			return nil, err
@@ -334,18 +351,28 @@ func (h *iBaselineServiceHandler) HandleTransact(ctx context.Context, code uint3
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if doubledValue == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBaselinePayloadToParcel(reply, doubledValue)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBaselinePayloadToParcel(reply, *doubledValue)
+			}()
 		}(); err != nil {
 			return nil, err
 		}
 		if err := func() error {
-			if err := reply.WriteInt32(1); err != nil {
-				return err
+			if payloadOutValue == nil {
+				return fmt.Errorf("%w: nil non-nullable return value", binder.ErrBadParcelable)
 			}
-			return writeBaselinePayloadToParcel(reply, payloadOutValue)
+			return func() error {
+				if err := reply.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBaselinePayloadToParcel(reply, *payloadOutValue)
+			}()
 		}(); err != nil {
 			return nil, err
 		}

@@ -95,6 +95,37 @@ func TestReadFixedSliceWrongLength(t *testing.T) {
 	}
 }
 
+func TestWriteFixedSliceRejectsNil(t *testing.T) {
+	p := NewParcel()
+
+	err := WriteFixedSlice[int32](p, nil, 0, func(p *Parcel, v int32) error {
+		return p.WriteInt32(v)
+	})
+	if !errors.Is(err, ErrBadParcelable) {
+		t.Fatalf("WriteFixedSlice(nil) error = %v, want ErrBadParcelable", err)
+	}
+}
+
+func TestReadFixedSliceRejectsNull(t *testing.T) {
+	p := NewParcel()
+
+	if err := WriteSlice[int32](p, nil, func(p *Parcel, v int32) error {
+		return p.WriteInt32(v)
+	}); err != nil {
+		t.Fatalf("WriteSlice(nil): %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	_, err := ReadFixedSlice(p, 0, func(p *Parcel) (int32, error) {
+		return p.ReadInt32()
+	})
+	if !errors.Is(err, ErrBadParcelable) {
+		t.Fatalf("ReadFixedSlice(null) error = %v, want ErrBadParcelable", err)
+	}
+}
+
 func TestWriteReadMap(t *testing.T) {
 	p := NewParcel()
 
