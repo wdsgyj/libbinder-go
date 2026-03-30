@@ -13,10 +13,15 @@ public final class BasicMatrixClientMain {
     public static void main(String[] args) throws Exception {
         String serviceName = args.length > 0 ? args[0] : DEFAULT_SERVICE_NAME;
         String expectedPrefix = args.length > 1 ? args[1] : "go";
+        String mode = args.length > 2 ? args[2] : "basic";
         IBinder binder = FixtureServiceLookup.waitForService(serviceName, 5000);
 
         IBasicMatrixService service = IBasicMatrixService.Stub.asInterface(binder);
-        BasicMatrixFixtures.verifyService(service, expectedPrefix);
+        if ("perf".equals(mode)) {
+            BasicMatrixFixtures.verifyLargePayloadService(service, expectedPrefix);
+        } else {
+            BasicMatrixFixtures.verifyService(service, expectedPrefix);
+        }
         System.out.println("OK");
     }
 }

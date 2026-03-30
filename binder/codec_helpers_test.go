@@ -148,3 +148,28 @@ func TestWriteReadDynamicValueNestedMap(t *testing.T) {
 		t.Fatalf("ReadDynamicValue = %#v, want %#v", got, want)
 	}
 }
+
+func TestWriteDynamicValueLengthPrefixedContainers(t *testing.T) {
+	p := NewParcel()
+	if err := WriteDynamicValue(p, map[any]any{"name": "demo", "tags": []any{"a", int32(2)}}); err != nil {
+		t.Fatalf("WriteDynamicValue(map): %v", err)
+	}
+	if err := p.SetPosition(0); err != nil {
+		t.Fatalf("SetPosition: %v", err)
+	}
+
+	tag, err := p.ReadInt32()
+	if err != nil {
+		t.Fatalf("ReadInt32(tag): %v", err)
+	}
+	if ValueTag(tag) != ValueMap {
+		t.Fatalf("tag = %d, want %d", tag, ValueMap)
+	}
+	length, err := p.ReadInt32()
+	if err != nil {
+		t.Fatalf("ReadInt32(length): %v", err)
+	}
+	if length <= 0 {
+		t.Fatalf("length = %d, want > 0", length)
+	}
+}

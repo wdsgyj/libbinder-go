@@ -1,6 +1,7 @@
 package gomodel
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/wdsgyj/libbinder-go/internal/aidl/ast"
@@ -94,6 +95,27 @@ interface IEcho {
 	}
 	if model.Unions[0].GoName != "IEchoResult" {
 		t.Fatalf("nested union GoName = %q, want IEchoResult", model.Unions[0].GoName)
+	}
+}
+
+func TestLowerNoPackageUsesSourceDirPackage(t *testing.T) {
+	src := `
+interface IFoo {
+  void Ping();
+}
+`
+
+	file, err := parser.Parse(filepath.Join("binder", "tests", "IFoo.aidl"), src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	model, diags := Lower(file, LowerOptions{SourcePath: filepath.Join("binder", "tests", "IFoo.aidl")})
+	if len(diags) != 0 {
+		t.Fatalf("Lower diagnostics = %#v, want none", diags)
+	}
+	if model.GoPackage != "tests" {
+		t.Fatalf("GoPackage = %q, want tests", model.GoPackage)
 	}
 }
 

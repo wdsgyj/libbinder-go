@@ -6,6 +6,21 @@
 
 ### Added
 
+- 增加 AIDL emulator/runtime/release gate 脚本：
+  - `scripts/android-aidl-runtime-cases.sh`
+  - `scripts/android-aidl-full-emulator.sh`
+  - `scripts/android-aidl-device-gate.sh`
+  - `scripts/aidl-corpus-regression.sh`
+  - `scripts/android-aidl-matrix-test.sh` 新增 `scale-emulator`、`runtime-emulator`、`full-emulator`、`device-gate`、`corpus-host` 入口
+- 增加 AIDL scale + runtime 覆盖收口：
+  - `PERF-001` large parcel payload
+  - `PERF-002` repeated listener churn
+  - `META-002` stability / partition enforcement
+  - `RPC-001` Android userspace RPC transport helper coverage
+- 增加扩展类型互操作覆盖：
+  - `MAP-003` raw `Map` dynamic value 互通
+  - `PARC-003` custom / non-structured parcelable 互通
+  - 对应 Java fixture protocol shim、Go client/server、shared case helper 与测试
 - 增加 Android emulator AIDL 基础兼容矩阵：
   - `scripts/android-aidl-basic-cases.sh`
   - 覆盖 Java server -> Go client 与 Go server -> Java client
@@ -65,6 +80,13 @@
 
 ### Changed
 
+- 无 `package` 的多文件 AIDL 现在按源码目录归并到同一个 Go package / 输出目录：
+  - 修复 AOSP binder tests corpus 这类目录级语料生成后无法一起编译的问题
+  - `cmd/aidlgen` 的 AOSP binder corpus 回归现在不只验证“能生成”，也验证“生成结果可直接 `go test ./...`”
+- `tests/aidl/cases/catalog.json`、`tests/aidl/cases/catalog.md`、`tests/aidl/README.md` 已同步到当前真实状态：
+  - full emulator matrix complete
+  - host corpus gate complete
+  - real-device gate wired
 - AIDL Go codegen 现在对 Java AIDL typed-object 语义对齐更完整：
   - 同步方法参数/返回值
   - `out` / `inout`
@@ -109,6 +131,8 @@
 ### Testing
 
 - 宿主机：
+  - `go test ./internal/aidl/gomodel ./cmd/aidlgen`
+  - `./scripts/aidl-corpus-regression.sh`
   - `go test ./...`
 - 新增单测覆盖：
   - `cmd/input` 100% statements
@@ -120,6 +144,9 @@
 ### Verification
 
 - Android aarch64 emulator：
+  - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-runtime-cases.sh`
+  - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-scale-cases.sh`
+  - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-full-emulator.sh`
   - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-basic-cases.sh`
   - `env ANDROID_AVD_NAME=libbinder-go-api35-default-arm64 ANDROID_IMAGE_TAG=default ANDROID_SERIAL=emulator-5562 ANDROID_EMULATOR_PORT=5562 ./scripts/android-aidl-advanced-cases.sh`
 - Android arm64 构建：

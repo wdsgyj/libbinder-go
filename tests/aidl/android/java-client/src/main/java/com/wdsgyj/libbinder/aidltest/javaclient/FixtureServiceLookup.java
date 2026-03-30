@@ -27,4 +27,17 @@ final class FixtureServiceLookup {
             Thread.sleep(100);
         }
     }
+
+    static String[] listServices() throws Exception {
+        Class<?> cls = Class.forName("android.os.ServiceManager");
+        try {
+            Method method = cls.getDeclaredMethod("listServices");
+            method.setAccessible(true);
+            return (String[]) method.invoke(null);
+        } catch (NoSuchMethodException ignored) {
+            Method method = cls.getDeclaredMethod("listServices", int.class);
+            method.setAccessible(true);
+            return (String[]) method.invoke(null, 15);
+        }
+    }
 }

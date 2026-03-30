@@ -49,25 +49,31 @@ const IBasicMatrixServiceTransactionEchoNullable uint32 = 1
 const IBasicMatrixServiceTransactionReverseInts uint32 = 2
 const IBasicMatrixServiceTransactionRotateTriple uint32 = 3
 const IBasicMatrixServiceTransactionDecorateTags uint32 = 4
-const IBasicMatrixServiceTransactionDecoratePayloads uint32 = 5
-const IBasicMatrixServiceTransactionDecorateLabels uint32 = 6
-const IBasicMatrixServiceTransactionDecoratePayloadMap uint32 = 7
-const IBasicMatrixServiceTransactionFlipMode uint32 = 8
-const IBasicMatrixServiceTransactionNormalizeUnion uint32 = 9
-const IBasicMatrixServiceTransactionNormalizeBundle uint32 = 10
-const IBasicMatrixServiceTransactionExpandBundle uint32 = 11
+const IBasicMatrixServiceTransactionDecorateTagGroups uint32 = 5
+const IBasicMatrixServiceTransactionDecoratePayloads uint32 = 6
+const IBasicMatrixServiceTransactionDecorateLabels uint32 = 7
+const IBasicMatrixServiceTransactionDecoratePayloadMap uint32 = 8
+const IBasicMatrixServiceTransactionDecoratePayloadBuckets uint32 = 9
+const IBasicMatrixServiceTransactionFlipMode uint32 = 10
+const IBasicMatrixServiceTransactionNormalizeUnion uint32 = 11
+const IBasicMatrixServiceTransactionNormalizeBundle uint32 = 12
+const IBasicMatrixServiceTransactionNormalizeEnvelope uint32 = 13
+const IBasicMatrixServiceTransactionExpandBundle uint32 = 14
 
 type IBasicMatrixService interface {
 	EchoNullable(ctx context.Context, value *string) (*string, error)
 	ReverseInts(ctx context.Context, values []int32) ([]int32, error)
 	RotateTriple(ctx context.Context, triple [3]int32) ([3]int32, error)
 	DecorateTags(ctx context.Context, tags []string) ([]string, error)
+	DecorateTagGroups(ctx context.Context, groups []BasicStringGroup) ([]BasicStringGroup, error)
 	DecoratePayloads(ctx context.Context, payloads []BaselinePayload) ([]BaselinePayload, error)
 	DecorateLabels(ctx context.Context, labels map[string]string) (map[string]string, error)
 	DecoratePayloadMap(ctx context.Context, payloadMap map[string]BaselinePayload) (map[string]BaselinePayload, error)
+	DecoratePayloadBuckets(ctx context.Context, payloadBuckets map[string][]BaselinePayload) (map[string][]BaselinePayload, error)
 	FlipMode(ctx context.Context, mode BasicMode) (BasicMode, error)
 	NormalizeUnion(ctx context.Context, value BasicUnion) (BasicUnion, error)
 	NormalizeBundle(ctx context.Context, value BasicBundle) (BasicBundle, error)
+	NormalizeEnvelope(ctx context.Context, value BasicEnvelope) (BasicEnvelope, error)
 	ExpandBundle(ctx context.Context, input BasicBundle, payload BasicBundle) (int32, BasicBundle, BasicBundle, error)
 }
 
@@ -245,6 +251,52 @@ func (c *iBasicMatrixServiceClient) DecorateTags(ctx context.Context, tags []str
 	return ret, nil
 }
 
+func (c *iBasicMatrixServiceClient) DecorateTagGroups(ctx context.Context, groups []BasicStringGroup) ([]BasicStringGroup, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req := binder.NewParcel()
+	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
+		return nil, err
+	}
+	if err := binder.WriteSlice(req, groups, func(p *binder.Parcel, item BasicStringGroup) error {
+		return func() error {
+			if err := p.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicStringGroupToParcel(p, item)
+		}()
+	}); err != nil {
+		return nil, err
+	}
+	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionDecorateTagGroups, req, binder.FlagNone)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, binder.ErrBadParcelable
+	}
+	if err := binder.ReadException(resp); err != nil {
+		return nil, err
+	}
+	ret, err := binder.ReadSlice(resp, func(p *binder.Parcel) (BasicStringGroup, error) {
+		return func() (BasicStringGroup, error) {
+			present, err := p.ReadInt32()
+			if err != nil {
+				return *new(BasicStringGroup), err
+			}
+			if present == 0 {
+				return *new(BasicStringGroup), nil
+			}
+			return readBasicStringGroupFromParcel(p)
+		}()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
 func (c *iBasicMatrixServiceClient) DecoratePayloads(ctx context.Context, payloads []BaselinePayload) ([]BaselinePayload, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -365,6 +417,56 @@ func (c *iBasicMatrixServiceClient) DecoratePayloadMap(ctx context.Context, payl
 	return ret, nil
 }
 
+func (c *iBasicMatrixServiceClient) DecoratePayloadBuckets(ctx context.Context, payloadBuckets map[string][]BaselinePayload) (map[string][]BaselinePayload, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req := binder.NewParcel()
+	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
+		return nil, err
+	}
+	if err := binder.WriteMap(req, payloadBuckets, func(p *binder.Parcel, item string) error { return p.WriteString(item) }, func(p *binder.Parcel, item []BaselinePayload) error {
+		return binder.WriteSlice(p, item, func(p *binder.Parcel, item BaselinePayload) error {
+			return func() error {
+				if err := p.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBaselinePayloadToParcel(p, item)
+			}()
+		})
+	}); err != nil {
+		return nil, err
+	}
+	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionDecoratePayloadBuckets, req, binder.FlagNone)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, binder.ErrBadParcelable
+	}
+	if err := binder.ReadException(resp); err != nil {
+		return nil, err
+	}
+	ret, err := binder.ReadMap(resp, func(p *binder.Parcel) (string, error) { return p.ReadString() }, func(p *binder.Parcel) ([]BaselinePayload, error) {
+		return binder.ReadSlice(p, func(p *binder.Parcel) (BaselinePayload, error) {
+			return func() (BaselinePayload, error) {
+				present, err := p.ReadInt32()
+				if err != nil {
+					return *new(BaselinePayload), err
+				}
+				if present == 0 {
+					return *new(BaselinePayload), nil
+				}
+				return readBaselinePayloadFromParcel(p)
+			}()
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
 func (c *iBasicMatrixServiceClient) FlipMode(ctx context.Context, mode BasicMode) (BasicMode, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -473,6 +575,48 @@ func (c *iBasicMatrixServiceClient) NormalizeBundle(ctx context.Context, value B
 	}()
 	if err != nil {
 		return *new(BasicBundle), err
+	}
+	return ret, nil
+}
+
+func (c *iBasicMatrixServiceClient) NormalizeEnvelope(ctx context.Context, value BasicEnvelope) (BasicEnvelope, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req := binder.NewParcel()
+	if err := req.WriteInterfaceToken(IBasicMatrixServiceDescriptor); err != nil {
+		return *new(BasicEnvelope), err
+	}
+	if err := func() error {
+		if err := req.WriteInt32(1); err != nil {
+			return err
+		}
+		return writeBasicEnvelopeToParcel(req, value)
+	}(); err != nil {
+		return *new(BasicEnvelope), err
+	}
+	resp, err := c.target.Transact(ctx, IBasicMatrixServiceTransactionNormalizeEnvelope, req, binder.FlagNone)
+	if err != nil {
+		return *new(BasicEnvelope), err
+	}
+	if resp == nil {
+		return *new(BasicEnvelope), binder.ErrBadParcelable
+	}
+	if err := binder.ReadException(resp); err != nil {
+		return *new(BasicEnvelope), err
+	}
+	ret, err := func() (BasicEnvelope, error) {
+		present, err := resp.ReadInt32()
+		if err != nil {
+			return *new(BasicEnvelope), err
+		}
+		if present == 0 {
+			return *new(BasicEnvelope), nil
+		}
+		return readBasicEnvelopeFromParcel(resp)
+	}()
+	if err != nil {
+		return *new(BasicEnvelope), err
 	}
 	return ret, nil
 }
@@ -678,6 +822,49 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		return reply, nil
+	case IBasicMatrixServiceTransactionDecorateTagGroups:
+		groupsArg, err := binder.ReadSlice(data, func(p *binder.Parcel) (BasicStringGroup, error) {
+			return func() (BasicStringGroup, error) {
+				present, err := p.ReadInt32()
+				if err != nil {
+					return *new(BasicStringGroup), err
+				}
+				if present == 0 {
+					return *new(BasicStringGroup), nil
+				}
+				return readBasicStringGroupFromParcel(p)
+			}()
+		})
+		if err != nil {
+			return nil, err
+		}
+		ret, err := h.impl.DecorateTagGroups(ctx, groupsArg)
+		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
+			return nil, err
+		}
+		reply := binder.NewParcel()
+		if err := binder.WriteNoException(reply); err != nil {
+			return nil, err
+		}
+		if err := binder.WriteSlice(reply, ret, func(p *binder.Parcel, item BasicStringGroup) error {
+			return func() error {
+				if err := p.WriteInt32(1); err != nil {
+					return err
+				}
+				return writeBasicStringGroupToParcel(p, item)
+			}()
+		}); err != nil {
+			return nil, err
+		}
+		return reply, nil
 	case IBasicMatrixServiceTransactionDecoratePayloads:
 		payloadsArg, err := binder.ReadSlice(data, func(p *binder.Parcel) (BaselinePayload, error) {
 			return func() (BaselinePayload, error) {
@@ -789,6 +976,53 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 			return nil, err
 		}
 		return reply, nil
+	case IBasicMatrixServiceTransactionDecoratePayloadBuckets:
+		payloadBucketsArg, err := binder.ReadMap(data, func(p *binder.Parcel) (string, error) { return p.ReadString() }, func(p *binder.Parcel) ([]BaselinePayload, error) {
+			return binder.ReadSlice(p, func(p *binder.Parcel) (BaselinePayload, error) {
+				return func() (BaselinePayload, error) {
+					present, err := p.ReadInt32()
+					if err != nil {
+						return *new(BaselinePayload), err
+					}
+					if present == 0 {
+						return *new(BaselinePayload), nil
+					}
+					return readBaselinePayloadFromParcel(p)
+				}()
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		ret, err := h.impl.DecoratePayloadBuckets(ctx, payloadBucketsArg)
+		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
+			return nil, err
+		}
+		reply := binder.NewParcel()
+		if err := binder.WriteNoException(reply); err != nil {
+			return nil, err
+		}
+		if err := binder.WriteMap(reply, ret, func(p *binder.Parcel, item string) error { return p.WriteString(item) }, func(p *binder.Parcel, item []BaselinePayload) error {
+			return binder.WriteSlice(p, item, func(p *binder.Parcel, item BaselinePayload) error {
+				return func() error {
+					if err := p.WriteInt32(1); err != nil {
+						return err
+					}
+					return writeBaselinePayloadToParcel(p, item)
+				}()
+			})
+		}); err != nil {
+			return nil, err
+		}
+		return reply, nil
 	case IBasicMatrixServiceTransactionFlipMode:
 		modeArg, err := readBasicModeFromParcel(data)
 		if err != nil {
@@ -888,6 +1122,45 @@ func (h *iBasicMatrixServiceHandler) HandleTransact(ctx context.Context, code ui
 				return err
 			}
 			return writeBasicBundleToParcel(reply, ret)
+		}(); err != nil {
+			return nil, err
+		}
+		return reply, nil
+	case IBasicMatrixServiceTransactionNormalizeEnvelope:
+		valueArg, err := func() (BasicEnvelope, error) {
+			present, err := data.ReadInt32()
+			if err != nil {
+				return *new(BasicEnvelope), err
+			}
+			if present == 0 {
+				return *new(BasicEnvelope), nil
+			}
+			return readBasicEnvelopeFromParcel(data)
+		}()
+		if err != nil {
+			return nil, err
+		}
+		ret, err := h.impl.NormalizeEnvelope(ctx, valueArg)
+		if err != nil {
+			reply := binder.NewParcel()
+			handled, writeErr := binder.TryWriteException(reply, err)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if handled {
+				return reply, nil
+			}
+			return nil, err
+		}
+		reply := binder.NewParcel()
+		if err := binder.WriteNoException(reply); err != nil {
+			return nil, err
+		}
+		if err := func() error {
+			if err := reply.WriteInt32(1); err != nil {
+				return err
+			}
+			return writeBasicEnvelopeToParcel(reply, ret)
 		}(); err != nil {
 			return nil, err
 		}

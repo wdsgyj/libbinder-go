@@ -34,6 +34,37 @@ func BasicMatrixInputBundle() shared.BasicBundle {
 	}
 }
 
+func BasicMatrixTagGroups() []shared.BasicStringGroup {
+	return []shared.BasicStringGroup{
+		{Tags: []string{"red", "blue"}},
+		{Tags: []string{"amber"}},
+	}
+}
+
+func BasicMatrixPayloadBuckets() map[string][]shared.BaselinePayload {
+	return map[string][]shared.BaselinePayload{
+		"left": {
+			{Code: 1, Note: stringPtr("alpha")},
+			{Code: 2, Note: nil},
+		},
+		"right": {
+			{Code: 3, Note: stringPtr("beta")},
+		},
+	}
+}
+
+func BasicMatrixInputEnvelope() shared.BasicEnvelope {
+	value := shared.NewBasicEnvelope()
+	value.Note = nil
+	value.Primary = &shared.BaselinePayload{Code: 5, Note: stringPtr("prime")}
+	value.History = []shared.BaselinePayload{
+		{Code: 7, Note: stringPtr("history")},
+		{Code: 8, Note: nil},
+	}
+	value.Bundle = BasicMatrixInputBundle()
+	return value
+}
+
 func EchoNullable(prefix string, value *string) *string {
 	if value == nil {
 		return nil
@@ -67,6 +98,17 @@ func DecorateTags(prefix string, tags []string) []string {
 	return out
 }
 
+func DecorateTagGroups(prefix string, groups []shared.BasicStringGroup) []shared.BasicStringGroup {
+	if groups == nil {
+		return nil
+	}
+	out := make([]shared.BasicStringGroup, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, shared.BasicStringGroup{Tags: DecorateTags(prefix, group.Tags)})
+	}
+	return out
+}
+
 func DecoratePayloads(prefix string, payloads []shared.BaselinePayload) []shared.BaselinePayload {
 	if payloads == nil {
 		return nil
@@ -96,6 +138,17 @@ func DecoratePayloadMap(prefix string, payloadMap map[string]shared.BaselinePayl
 	out := make(map[string]shared.BaselinePayload, len(payloadMap))
 	for key, value := range payloadMap {
 		out[key] = decoratePayload(prefix, value, int32(len(key)))
+	}
+	return out
+}
+
+func DecoratePayloadBuckets(prefix string, payloadBuckets map[string][]shared.BaselinePayload) map[string][]shared.BaselinePayload {
+	if payloadBuckets == nil {
+		return nil
+	}
+	out := make(map[string][]shared.BaselinePayload, len(payloadBuckets))
+	for key, values := range payloadBuckets {
+		out[key] = DecoratePayloads(prefix+":"+key, values)
 	}
 	return out
 }
@@ -136,6 +189,23 @@ func NormalizeBundle(prefix string, value shared.BasicBundle) shared.BasicBundle
 		Mode:       FlipMode(value.Mode),
 		Value:      NormalizeUnion(prefix, value.Value),
 	}
+}
+
+func NormalizeEnvelope(prefix string, value shared.BasicEnvelope) shared.BasicEnvelope {
+	out := shared.NewBasicEnvelope()
+	title := value.Title
+	if title == "" {
+		title = "untitled"
+	}
+	out.Title = prefix + ":" + title
+	out.Note = prefixedOrDefault(prefix, value.Note, "default")
+	if value.Primary != nil {
+		primary := decoratePayload(prefix, *value.Primary, 11)
+		out.Primary = &primary
+	}
+	out.History = DecoratePayloads(prefix, value.History)
+	out.Bundle = NormalizeBundle(prefix, value.Bundle)
+	return out
 }
 
 func ExpandBundle(prefix string, input shared.BasicBundle, payload shared.BasicBundle) (int32, shared.BasicBundle, shared.BasicBundle) {
@@ -186,6 +256,14 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		return err
 	}
 
+	tagGroups, err := svc.DecorateTagGroups(ctx, BasicMatrixTagGroups())
+	if err != nil {
+		return fmt.Errorf("DecorateTagGroups: %w", err)
+	}
+	if err := equal("DecorateTagGroups", tagGroups, DecorateTagGroups(prefix, BasicMatrixTagGroups())); err != nil {
+		return err
+	}
+
 	payloads, err := svc.DecoratePayloads(ctx, input.Payloads)
 	if err != nil {
 		return fmt.Errorf("DecoratePayloads: %w", err)
@@ -210,6 +288,14 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		return err
 	}
 
+	payloadBuckets, err := svc.DecoratePayloadBuckets(ctx, BasicMatrixPayloadBuckets())
+	if err != nil {
+		return fmt.Errorf("DecoratePayloadBuckets: %w", err)
+	}
+	if err := equal("DecoratePayloadBuckets", payloadBuckets, DecoratePayloadBuckets(prefix, BasicMatrixPayloadBuckets())); err != nil {
+		return err
+	}
+
 	mode, err := svc.FlipMode(ctx, input.Mode)
 	if err != nil {
 		return fmt.Errorf("FlipMode: %w", err)
@@ -231,6 +317,14 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		return fmt.Errorf("NormalizeBundle: %w", err)
 	}
 	if err := equal("NormalizeBundle", bundle, NormalizeBundle(prefix, input)); err != nil {
+		return err
+	}
+
+	envelope, err := svc.NormalizeEnvelope(ctx, BasicMatrixInputEnvelope())
+	if err != nil {
+		return fmt.Errorf("NormalizeEnvelope: %w", err)
+	}
+	if err := equal("NormalizeEnvelope", envelope, NormalizeEnvelope(prefix, BasicMatrixInputEnvelope())); err != nil {
 		return err
 	}
 
@@ -270,6 +364,113 @@ func VerifyBasicMatrixService(ctx context.Context, svc shared.IBasicMatrixServic
 		return err
 	}
 
+	return nil
+}
+
+func BasicMatrixLargeInputBundle() shared.BasicBundle {
+	ints := make([]int32, 4096)
+	tags := make([]string, 256)
+	payloads := make([]shared.BaselinePayload, 256)
+	labels := make(map[string]string, 128)
+	payloadMap := make(map[string]shared.BaselinePayload, 128)
+	for i := range ints {
+		ints[i] = int32(i + 1)
+	}
+	for i := range tags {
+		tags[i] = fmt.Sprintf("tag-%03d", i)
+	}
+	for i := range payloads {
+		payloads[i] = shared.BaselinePayload{
+			Code: int32(i + 10),
+			Note: stringPtr(fmt.Sprintf("note-%03d", i)),
+		}
+	}
+	for i := 0; i < 128; i++ {
+		key := fmt.Sprintf("key-%03d", i)
+		labels[key] = fmt.Sprintf("label-%03d", i)
+		payloadMap[key] = shared.BaselinePayload{
+			Code: int32(200 + i),
+			Note: stringPtr(fmt.Sprintf("payload-%03d", i)),
+		}
+	}
+	return shared.BasicBundle{
+		Ints:       ints,
+		Triple:     [3]int32{101, 202, 303},
+		Note:       stringPtr("bulk"),
+		Tags:       tags,
+		Payloads:   payloads,
+		Labels:     labels,
+		PayloadMap: payloadMap,
+		Mode:       shared.BasicModeAlpha,
+		Value: shared.BasicUnion{
+			Tag:     shared.BasicUnionTagPayload,
+			Payload: shared.BaselinePayload{Code: 999, Note: stringPtr("union")},
+		},
+	}
+}
+
+func BasicMatrixLargePayloadBuckets() map[string][]shared.BaselinePayload {
+	out := make(map[string][]shared.BaselinePayload, 32)
+	for i := 0; i < 32; i++ {
+		key := fmt.Sprintf("bucket-%02d", i)
+		values := make([]shared.BaselinePayload, 32)
+		for j := range values {
+			values[j] = shared.BaselinePayload{
+				Code: int32(i*100 + j),
+				Note: stringPtr(fmt.Sprintf("%s-item-%02d", key, j)),
+			}
+		}
+		out[key] = values
+	}
+	return out
+}
+
+func BasicMatrixLargeEnvelope() shared.BasicEnvelope {
+	value := shared.NewBasicEnvelope()
+	value.Title = "bulk"
+	value.Note = stringPtr("bulk-note")
+	value.Primary = &shared.BaselinePayload{Code: 77, Note: stringPtr("primary")}
+	value.History = make([]shared.BaselinePayload, 128)
+	for i := range value.History {
+		value.History[i] = shared.BaselinePayload{
+			Code: int32(300 + i),
+			Note: stringPtr(fmt.Sprintf("history-%03d", i)),
+		}
+	}
+	value.Bundle = BasicMatrixLargeInputBundle()
+	return value
+}
+
+func VerifyBasicMatrixPerformance(ctx context.Context, svc shared.IBasicMatrixService, prefix string) error {
+	if svc == nil {
+		return fmt.Errorf("nil service")
+	}
+	ints := BasicMatrixLargeInputBundle().Ints
+	reversed, err := svc.ReverseInts(ctx, ints)
+	if err != nil {
+		return fmt.Errorf("ReverseInts(large): %w", err)
+	}
+	if err := equal("ReverseInts.large", reversed, ReverseInts(ints)); err != nil {
+		return err
+	}
+
+	envelope := BasicMatrixLargeEnvelope()
+	gotEnvelope, err := svc.NormalizeEnvelope(ctx, envelope)
+	if err != nil {
+		return fmt.Errorf("NormalizeEnvelope(large): %w", err)
+	}
+	if err := equal("NormalizeEnvelope.large", gotEnvelope, NormalizeEnvelope(prefix, envelope)); err != nil {
+		return err
+	}
+
+	buckets := BasicMatrixLargePayloadBuckets()
+	gotBuckets, err := svc.DecoratePayloadBuckets(ctx, buckets)
+	if err != nil {
+		return fmt.Errorf("DecoratePayloadBuckets(large): %w", err)
+	}
+	if err := equal("DecoratePayloadBuckets.large", gotBuckets, DecoratePayloadBuckets(prefix, buckets)); err != nil {
+		return err
+	}
 	return nil
 }
 

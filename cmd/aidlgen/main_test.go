@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -349,6 +350,41 @@ func TestRunGoAOSPBinderCorpus(t *testing.T) {
 	if found == 0 {
 		t.Fatalf("generated file count = %d, want > 0", found)
 	}
+
+	writeGeneratedModuleGoMod(t, outDir)
+	runGoTestGeneratedModule(t, outDir)
+}
+
+func TestRunGoNoPackageDirectoryCompiles(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "binder", "tests")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	certPath := filepath.Join(pkgDir, "ParcelableCertificateData.aidl")
+	clientPath := filepath.Join(pkgDir, "BinderRpcTestClientInfo.aidl")
+	outDir := filepath.Join(dir, "out")
+
+	certSrc := `parcelable ParcelableCertificateData { byte[] data; }`
+	clientSrc := `import ParcelableCertificateData; parcelable BinderRpcTestClientInfo { ParcelableCertificateData[] certs; }`
+
+	if err := os.WriteFile(certPath, []byte(certSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(cert): %v", err)
+	}
+	if err := os.WriteFile(clientPath, []byte(clientSrc), 0o644); err != nil {
+		t.Fatalf("WriteFile(client): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"-format", "go", "-go-import-root", "example.com/generated", "-out", outDir, certPath, clientPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %s", code, stderr.String())
+	}
+
+	writeGeneratedModuleGoMod(t, outDir)
+	runGoTestGeneratedModule(t, outDir)
 }
 
 func aospBinderCorpusFiles(t *testing.T) []string {
@@ -400,4 +436,41 @@ func aospBinderCorpusFiles(t *testing.T) []string {
 	files = unique
 	sort.Strings(files)
 	return files
+}
+
+func writeGeneratedModuleGoMod(t *testing.T, outDir string) {
+	t.Helper()
+
+	goMod := `module example.com/generated
+
+go 1.22
+
+require github.com/wdsgyj/libbinder-go v0.0.0
+
+replace github.com/wdsgyj/libbinder-go => ` + repoRoot(t) + `
+`
+	if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod): %v", err)
+	}
+}
+
+func runGoTestGeneratedModule(t *testing.T, outDir string) {
+	t.Helper()
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = outDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test ./... in %s: %v\n%s", outDir, err, output)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }

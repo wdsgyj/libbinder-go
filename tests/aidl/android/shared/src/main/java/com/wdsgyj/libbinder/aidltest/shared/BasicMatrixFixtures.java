@@ -48,6 +48,29 @@ public final class BasicMatrixFixtures {
         return value;
     }
 
+    public static List<BasicStringGroup> tagGroups() {
+        ArrayList<BasicStringGroup> out = new ArrayList<>();
+        out.add(group("red", "blue"));
+        out.add(group("amber"));
+        return out;
+    }
+
+    public static Map<String, List<BaselinePayload>> payloadBuckets() {
+        HashMap<String, List<BaselinePayload>> out = new HashMap<>();
+        out.put("left", new ArrayList<>(Arrays.asList(payload(1, "alpha"), payload(2, null))));
+        out.put("right", new ArrayList<>(Arrays.asList(payload(3, "beta"))));
+        return out;
+    }
+
+    public static BasicEnvelope inputEnvelope() {
+        BasicEnvelope value = new BasicEnvelope();
+        value.note = null;
+        value.primary = payload(5, "prime");
+        value.history = new ArrayList<>(Arrays.asList(payload(7, "history"), payload(8, null)));
+        value.bundle = inputBundle();
+        return value;
+    }
+
     public static String echoNullable(String prefix, String value) {
         return value == null ? null : prefix + ":" + value;
     }
@@ -76,6 +99,19 @@ public final class BasicMatrixFixtures {
         ArrayList<String> out = new ArrayList<>(tags.size());
         for (String tag : tags) {
             out.add(prefix + ":" + tag);
+        }
+        return out;
+    }
+
+    public static List<BasicStringGroup> decorateTagGroups(String prefix, List<BasicStringGroup> groups) {
+        if (groups == null) {
+            return null;
+        }
+        ArrayList<BasicStringGroup> out = new ArrayList<>(groups.size());
+        for (BasicStringGroup group : groups) {
+            BasicStringGroup value = new BasicStringGroup();
+            value.tags = decorateTags(prefix, group.tags);
+            out.add(value);
         }
         return out;
     }
@@ -109,6 +145,17 @@ public final class BasicMatrixFixtures {
         HashMap<String, BaselinePayload> out = new HashMap<>();
         for (Map.Entry<String, BaselinePayload> entry : payloadMap.entrySet()) {
             out.put(entry.getKey(), decoratePayload(prefix, entry.getValue(), entry.getKey().length()));
+        }
+        return out;
+    }
+
+    public static Map<String, List<BaselinePayload>> decoratePayloadBuckets(String prefix, Map<String, List<BaselinePayload>> payloadBuckets) {
+        if (payloadBuckets == null) {
+            return null;
+        }
+        HashMap<String, List<BaselinePayload>> out = new HashMap<>();
+        for (Map.Entry<String, List<BaselinePayload>> entry : payloadBuckets.entrySet()) {
+            out.put(entry.getKey(), decoratePayloads(prefix + ":" + entry.getKey(), entry.getValue()));
         }
         return out;
     }
@@ -156,6 +203,19 @@ public final class BasicMatrixFixtures {
         return out;
     }
 
+    public static BasicEnvelope normalizeEnvelope(String prefix, BasicEnvelope value) {
+        if (value == null) {
+            return null;
+        }
+        BasicEnvelope out = new BasicEnvelope();
+        out.title = prefixOrDefault(prefix, value.title, "untitled");
+        out.note = prefixOrDefault(prefix, value.note, "default");
+        out.primary = value.primary == null ? null : decoratePayload(prefix, value.primary, 11);
+        out.history = decoratePayloads(prefix, value.history);
+        out.bundle = normalizeBundle(prefix, value.bundle);
+        return out;
+    }
+
     public static int expandBundle(String prefix, BasicBundle input, BasicBundle doubled, BasicBundle payload) {
         int ret = input.ints.length + payload.tags.size();
         copyBundle(normalizeBundle(prefix, input), doubled);
@@ -172,12 +232,15 @@ public final class BasicMatrixFixtures {
         assertTrue("ReverseInts", Arrays.equals(reverseInts(input.ints), service.ReverseInts(input.ints)));
         assertTrue("RotateTriple", Arrays.equals(rotateTriple(input.triple), service.RotateTriple(input.triple)));
         assertTrue("DecorateTags", equalStringList(decorateTags(prefix, input.tags), service.DecorateTags(input.tags)));
+        assertTrue("DecorateTagGroups", equalStringGroupList(decorateTagGroups(prefix, tagGroups()), service.DecorateTagGroups(tagGroups())));
         assertTrue("DecoratePayloads", equalPayloadList(decoratePayloads(prefix, input.payloads), service.DecoratePayloads(input.payloads)));
         assertTrue("DecorateLabels", equalStringMap(decorateLabels(prefix, input.labels), service.DecorateLabels(input.labels)));
         assertTrue("DecoratePayloadMap", equalPayloadMap(decoratePayloadMap(prefix, input.payloadMap), service.DecoratePayloadMap(input.payloadMap)));
+        assertTrue("DecoratePayloadBuckets", equalPayloadBucketMap(decoratePayloadBuckets(prefix, payloadBuckets()), service.DecoratePayloadBuckets(payloadBuckets())));
         assertEquals("FlipMode", flipMode(input.mode), service.FlipMode(input.mode));
         assertTrue("NormalizeUnion", equalUnion(normalizeUnion(prefix, input.value), service.NormalizeUnion(input.value)));
         assertTrue("NormalizeBundle", equalBundle(normalizeBundle(prefix, input), service.NormalizeBundle(input)));
+        assertTrue("NormalizeEnvelope", equalEnvelope(normalizeEnvelope(prefix, inputEnvelope()), service.NormalizeEnvelope(inputEnvelope())));
 
         BasicBundle second = secondBundle();
         BasicBundle doubled = new BasicBundle();
@@ -191,6 +254,14 @@ public final class BasicMatrixFixtures {
         assertEquals("ExpandBundle.ret", wantRet, ret);
         assertTrue("ExpandBundle.doubled", equalBundle(wantDoubled, doubled));
         assertTrue("ExpandBundle.payload", equalBundle(wantPayload, payload));
+    }
+
+    public static void verifyLargePayloadService(IBasicMatrixService service, String prefix) throws Exception {
+        BasicBundle input = largeInputBundle();
+
+        assertTrue("ReverseInts.large", Arrays.equals(reverseInts(input.ints), service.ReverseInts(input.ints)));
+        assertTrue("NormalizeEnvelope.large", equalEnvelope(normalizeEnvelope(prefix, largeEnvelope()), service.NormalizeEnvelope(largeEnvelope())));
+        assertTrue("DecoratePayloadBuckets.large", equalPayloadBucketMap(decoratePayloadBuckets(prefix, largePayloadBuckets()), service.DecoratePayloadBuckets(largePayloadBuckets())));
     }
 
     public static boolean equalBundle(BasicBundle left, BasicBundle right) {
@@ -243,6 +314,20 @@ public final class BasicMatrixFixtures {
         return left.code == right.code && Objects.equals(left.note, right.note);
     }
 
+    public static boolean equalEnvelope(BasicEnvelope left, BasicEnvelope right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        return Objects.equals(left.title, right.title)
+                && Objects.equals(left.note, right.note)
+                && equalPayload(left.primary, right.primary)
+                && equalPayloadList(left.history, right.history)
+                && equalBundle(left.bundle, right.bundle);
+    }
+
     public static boolean equalPayloadList(List<BaselinePayload> left, List<BaselinePayload> right) {
         if (left == right) {
             return true;
@@ -252,6 +337,36 @@ public final class BasicMatrixFixtures {
         }
         for (int i = 0; i < left.size(); i++) {
             if (!equalPayload(left.get(i), right.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static boolean equalStringGroupList(List<BasicStringGroup> left, List<BasicStringGroup> right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (!equalStringList(left.get(i).tags, right.get(i).tags)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static boolean equalPayloadBucketMap(Map<String, List<BaselinePayload>> left, Map<String, List<BaselinePayload>> right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.size() != right.size()) {
+            return false;
+        }
+        for (Map.Entry<String, List<BaselinePayload>> entry : left.entrySet()) {
+            if (!equalPayloadList(entry.getValue(), right.get(entry.getKey()))) {
                 return false;
             }
         }
@@ -286,6 +401,12 @@ public final class BasicMatrixFixtures {
         payload.code = code;
         payload.note = note;
         return payload;
+    }
+
+    private static BasicStringGroup group(String... values) {
+        BasicStringGroup out = new BasicStringGroup();
+        out.tags = new ArrayList<>(Arrays.asList(values));
+        return out;
     }
 
     private static BaselinePayload decoratePayload(String prefix, BaselinePayload payload, int codeDelta) {
@@ -342,6 +463,60 @@ public final class BasicMatrixFixtures {
         int[] out = Arrays.copyOf(values, values.length + 1);
         out[out.length - 1] = value;
         return out;
+    }
+
+    private static BasicBundle largeInputBundle() {
+        BasicBundle value = new BasicBundle();
+        value.ints = new int[4096];
+        for (int i = 0; i < value.ints.length; i++) {
+            value.ints[i] = i + 1;
+        }
+        value.triple = new int[] {101, 202, 303};
+        value.note = "bulk";
+        value.tags = new ArrayList<>();
+        for (int i = 0; i < 256; i++) {
+            value.tags.add(String.format("tag-%03d", i));
+        }
+        value.payloads = new ArrayList<>();
+        for (int i = 0; i < 256; i++) {
+            value.payloads.add(payload(10 + i, String.format("note-%03d", i)));
+        }
+        value.labels = new HashMap<>();
+        value.payloadMap = new HashMap<>();
+        for (int i = 0; i < 128; i++) {
+            String key = String.format("key-%03d", i);
+            value.labels.put(key, String.format("label-%03d", i));
+            value.payloadMap.put(key, payload(200 + i, String.format("payload-%03d", i)));
+        }
+        value.mode = BasicMode.ALPHA;
+        value.value = BasicUnion.payload(payload(999, "union"));
+        return value;
+    }
+
+    private static Map<String, List<BaselinePayload>> largePayloadBuckets() {
+        HashMap<String, List<BaselinePayload>> out = new HashMap<>();
+        for (int i = 0; i < 32; i++) {
+            String key = String.format("bucket-%02d", i);
+            ArrayList<BaselinePayload> values = new ArrayList<>();
+            for (int j = 0; j < 32; j++) {
+                values.add(payload(i * 100 + j, String.format("%s-item-%02d", key, j)));
+            }
+            out.put(key, values);
+        }
+        return out;
+    }
+
+    private static BasicEnvelope largeEnvelope() {
+        BasicEnvelope value = new BasicEnvelope();
+        value.title = "bulk";
+        value.note = "bulk-note";
+        value.primary = payload(77, "primary");
+        value.history = new ArrayList<>();
+        for (int i = 0; i < 128; i++) {
+            value.history.add(payload(300 + i, String.format("history-%03d", i)));
+        }
+        value.bundle = largeInputBundle();
+        return value;
     }
 
     private static void assertEquals(String name, Object want, Object got) {

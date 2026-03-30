@@ -229,11 +229,29 @@ func ReadDynamicValue(p *Parcel) (any, error) {
 	case ValueInteger:
 		return p.ReadInt32()
 	case ValueMap:
-		return ReadMap(p, func(p *Parcel) (any, error) { return ReadDynamicValue(p) }, func(p *Parcel) (any, error) { return ReadDynamicValue(p) })
+		start, err := readDynamicLengthPrefix(p)
+		if err != nil {
+			return nil, err
+		}
+		value, err := ReadMap(p, func(p *Parcel) (any, error) { return ReadDynamicValue(p) }, func(p *Parcel) (any, error) { return ReadDynamicValue(p) })
+		if err != nil {
+			return nil, err
+		}
+		if err := finishDynamicLengthPrefix(p, start); err != nil {
+			return nil, err
+		}
+		return value, nil
 	case ValueParcelable:
+		start, err := readDynamicLengthPrefix(p)
+		if err != nil {
+			return nil, err
+		}
 		name, nameErr := p.ReadString()
 		if nameErr != nil {
 			return nil, nameErr
+		}
+		if err := finishDynamicLengthPrefix(p, start); err != nil {
+			return nil, err
 		}
 		return nil, fmt.Errorf("%w: dynamic parcelable %q requires a typed codec", ErrUnsupported, name)
 	case ValueShort:
@@ -248,7 +266,18 @@ func ReadDynamicValue(p *Parcel) (any, error) {
 	case ValueBoolean:
 		return p.ReadBool()
 	case ValueList:
-		return ReadSlice(p, func(p *Parcel) (any, error) { return ReadDynamicValue(p) })
+		start, err := readDynamicLengthPrefix(p)
+		if err != nil {
+			return nil, err
+		}
+		value, err := ReadSlice(p, func(p *Parcel) (any, error) { return ReadDynamicValue(p) })
+		if err != nil {
+			return nil, err
+		}
+		if err := finishDynamicLengthPrefix(p, start); err != nil {
+			return nil, err
+		}
+		return value, nil
 	case ValueByteArray:
 		return p.ReadBytes()
 	case ValueStringArray:
@@ -282,7 +311,57 @@ func writeDynamicTagged(p *Parcel, tag ValueTag, body func() error) error {
 	if err := p.WriteInt32(int32(tag)); err != nil {
 		return err
 	}
+	if dynamicValueLengthPrefixed(tag) {
+		start := p.Position()
+		if err := p.WriteInt32(0); err != nil {
+			return err
+		}
+		bodyStart := p.Position()
+		if err := body(); err != nil {
+			return err
+		}
+		bodyEnd := p.Position()
+		if err := p.SetPosition(start); err != nil {
+			return err
+		}
+		if err := p.WriteInt32(int32(bodyEnd - bodyStart)); err != nil {
+			return err
+		}
+		return p.SetPosition(bodyEnd)
+	}
 	return body()
+}
+
+func dynamicValueLengthPrefixed(tag ValueTag) bool {
+	switch tag {
+	case ValueMap, ValueParcelable, ValueList:
+		return true
+	default:
+		return false
+	}
+}
+
+func readDynamicLengthPrefix(p *Parcel) (int, error) {
+	size, err := p.ReadInt32()
+	if err != nil {
+		return 0, err
+	}
+	if size < 0 {
+		return 0, fmt.Errorf("%w: negative dynamic value length %d", ErrBadParcelable, size)
+	}
+	start := p.Position()
+	return start + int(size), nil
+}
+
+func finishDynamicLengthPrefix(p *Parcel, end int) error {
+	pos := p.Position()
+	if pos > end {
+		return fmt.Errorf("%w: dynamic value length overrun: pos=%d end=%d", ErrBadParcelable, pos, end)
+	}
+	if pos == end {
+		return nil
+	}
+	return p.SetPosition(end)
 }
 
 func writeStringArray(p *Parcel, values []string) error {

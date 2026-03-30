@@ -23,6 +23,15 @@ Commands:
   baseline-sync Run the first Java server -> Go client baseline script
   basic-emulator Run the current basic emulator matrix
   advanced-emulator Run the current advanced emulator slice
+  extended-emulator Run raw-Map + custom-parcelable emulator slice
+  governance-emulator Run listener + metadata governance slice
+  lifecycle-emulator Run lifecycle/death slice
+  callbacks-emulator Run ResultReceiver/ShellCallback slice
+  scale-emulator  Run large-payload and callback-churn slice
+  runtime-emulator Run runtime stability/RPC slice
+  full-emulator   Run the full emulator regression gate
+  device-gate     Run the current real-device regression gate
+  corpus-host     Run host-side AOSP corpus regression
   catalog-json  Print the machine-readable case catalog
   help          Show this help
 
@@ -106,6 +115,33 @@ PY
     ;;
   advanced-emulator)
     "${ROOT_DIR}/scripts/android-aidl-advanced-cases.sh" "${@:2}"
+    ;;
+  extended-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-extended-cases.sh" "${@:2}"
+    ;;
+  governance-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-governance-cases.sh" "${@:2}"
+    ;;
+  lifecycle-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-lifecycle-cases.sh" "${@:2}"
+    ;;
+  callbacks-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-android-callback-cases.sh" "${@:2}"
+    ;;
+  scale-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-scale-cases.sh" "${@:2}"
+    ;;
+  runtime-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-runtime-cases.sh" "${@:2}"
+    ;;
+  full-emulator)
+    "${ROOT_DIR}/scripts/android-aidl-full-emulator.sh" "${@:2}"
+    ;;
+  device-gate)
+    "${ROOT_DIR}/scripts/android-aidl-device-gate.sh" "${@:2}"
+    ;;
+  corpus-host)
+    "${ROOT_DIR}/scripts/aidl-corpus-regression.sh" "${@:2}"
     ;;
   catalog-json)
     cat "${CATALOG_JSON}"

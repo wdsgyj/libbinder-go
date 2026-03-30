@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "interfaces": [
+    {
+      "aidl_name": "com.wdsgyj.libbinder.aidltest.shared.IMetadataService",
+      "version": 7,
+      "hash": "metadata-hash-v7"
+    }
+  ],
+  "parcelables": [
+    {
+      "aidl_name": "com.wdsgyj.libbinder.aidltest.shared.CustomBox",
+      "go_package": "github.com/wdsgyj/libbinder-go/tests/aidl/go/shared/customcodec",
+      "go_type": "CustomBox",
+      "write_func": "WriteCustomBoxToParcel",
+      "read_func": "ReadCustomBoxFromParcel",
+      "nullable": true
+    }
+  ]
+}

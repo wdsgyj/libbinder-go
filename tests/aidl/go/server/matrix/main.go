@@ -33,6 +33,10 @@ func (m matrixServer) DecorateTags(ctx context.Context, tags []string) ([]string
 	return cases.DecorateTags(m.prefix, tags), nil
 }
 
+func (m matrixServer) DecorateTagGroups(ctx context.Context, groups []shared.BasicStringGroup) ([]shared.BasicStringGroup, error) {
+	return cases.DecorateTagGroups(m.prefix, groups), nil
+}
+
 func (m matrixServer) DecoratePayloads(ctx context.Context, payloads []shared.BaselinePayload) ([]shared.BaselinePayload, error) {
 	return cases.DecoratePayloads(m.prefix, payloads), nil
 }
@@ -45,6 +49,10 @@ func (m matrixServer) DecoratePayloadMap(ctx context.Context, payloadMap map[str
 	return cases.DecoratePayloadMap(m.prefix, payloadMap), nil
 }
 
+func (m matrixServer) DecoratePayloadBuckets(ctx context.Context, payloadBuckets map[string][]shared.BaselinePayload) (map[string][]shared.BaselinePayload, error) {
+	return cases.DecoratePayloadBuckets(m.prefix, payloadBuckets), nil
+}
+
 func (m matrixServer) FlipMode(ctx context.Context, mode shared.BasicMode) (shared.BasicMode, error) {
 	return cases.FlipMode(mode), nil
 }
@@ -55,6 +63,10 @@ func (m matrixServer) NormalizeUnion(ctx context.Context, value shared.BasicUnio
 
 func (m matrixServer) NormalizeBundle(ctx context.Context, value shared.BasicBundle) (shared.BasicBundle, error) {
 	return cases.NormalizeBundle(m.prefix, value), nil
+}
+
+func (m matrixServer) NormalizeEnvelope(ctx context.Context, value shared.BasicEnvelope) (shared.BasicEnvelope, error) {
+	return cases.NormalizeEnvelope(m.prefix, value), nil
 }
 
 func (m matrixServer) ExpandBundle(ctx context.Context, input shared.BasicBundle, payload shared.BasicBundle) (int32, shared.BasicBundle, shared.BasicBundle, error) {

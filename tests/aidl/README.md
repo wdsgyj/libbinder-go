@@ -23,25 +23,33 @@ This directory is intentionally separate from package-local unit tests.
 
 ## Current Status
 
-The framework now has runnable emulator basic + advanced slices.
+The framework now has a complete emulator matrix, a host corpus regression gate, and a wired real-device regression entry.
 
 What exists now:
 
 - phase plan and full case inventory
-- shared fixture AIDL definitions for baseline + basic matrix
-- advanced Binder/FD fixture set with Java hand-written protocol shim where SDK AIDL stubs cannot compile hidden `FileDescriptor` APIs
+- shared fixture AIDL definitions for baseline, advanced, governance, lifecycle, scale, and extended type coverage
+- Java hand-written Binder protocol shims for SDK-hidden or Java-AIDL-unsupported paths such as raw `FileDescriptor` and untyped `Map`
 - Java fixture services and clients
 - Go fixture services and clients
 - host runner entry scripts
-- emulator basic matrix runner
-- emulator advanced matrix runner
+- emulator slice runners:
+  - `basic`
+  - `advanced`
+  - `extended`
+  - `governance`
+  - `lifecycle`
+  - `callbacks`
+  - `scale`
+  - `runtime`
+- full emulator aggregation gate
+- host AOSP binder corpus generate + compile gate
+- real-device regression gate wiring
 
-What still needs implementation:
+What is still intentionally separate:
 
-- real-device execution path for custom service registration cases
-- raw `Map` compatibility path outside Java AIDL's typed restrictions
-- listener registration churn / lifecycle / metadata / Android callback carrier phases
-- release-gate aggregation across the full catalog
+- real-device full-matrix execution is wired, but still depends on an attached target that permits the required shell / service interactions
+- some emulator fixtures continue to use hand-written Java Binder protocol shims where Android SDK AIDL tooling cannot express the required wire format
 
 ## Entry Points
 
@@ -51,3 +59,12 @@ What still needs implementation:
 - helper script: `scripts/android-aidl-matrix-test.sh`
 - emulator basic matrix: `scripts/android-aidl-basic-cases.sh`
 - emulator advanced matrix: `scripts/android-aidl-advanced-cases.sh`
+- emulator extended matrix: `scripts/android-aidl-extended-cases.sh`
+- emulator governance matrix: `scripts/android-aidl-governance-cases.sh`
+- emulator lifecycle matrix: `scripts/android-aidl-lifecycle-cases.sh`
+- emulator Android callback matrix: `scripts/android-aidl-android-callback-cases.sh`
+- emulator scale matrix: `scripts/android-aidl-scale-cases.sh`
+- emulator runtime matrix: `scripts/android-aidl-runtime-cases.sh`
+- full emulator gate: `scripts/android-aidl-full-emulator.sh`
+- host corpus gate: `scripts/aidl-corpus-regression.sh`
+- real-device gate: `scripts/android-aidl-device-gate.sh`

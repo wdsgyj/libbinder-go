@@ -9,6 +9,7 @@ AIDL_ROOTS=(
 )
 GO_OUT="${ROOT_DIR}/tests/aidl/go/shared/generated"
 GO_IMPORT_ROOT="github.com/wdsgyj/libbinder-go/tests/aidl/go/shared/generated"
+TYPES_PATH="${ROOT_DIR}/tests/aidl/extra/aidl/aidl.types.json"
 
 aidl_files=()
 for root in "${AIDL_ROOTS[@]}"; do
@@ -28,10 +29,17 @@ fi
 rm -rf "${GO_OUT}"
 mkdir -p "${GO_OUT}"
 
-go run ./cmd/aidlgen \
-  -format go \
-  -out "${GO_OUT}" \
-  -go-import-root "${GO_IMPORT_ROOT}" \
-  "${aidl_files[@]}"
+args=(
+  ./cmd/aidlgen
+  -format go
+  -out "${GO_OUT}"
+  -go-import-root "${GO_IMPORT_ROOT}"
+)
+
+if [ -f "${TYPES_PATH}" ]; then
+  args+=(-types "${TYPES_PATH}")
+fi
+
+go run "${args[@]}" "${aidl_files[@]}"
 
 echo "generated Go AIDL fixtures into ${GO_OUT}"

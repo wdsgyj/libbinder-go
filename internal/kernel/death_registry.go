@@ -154,6 +154,11 @@ func (r *deathRegistry) removeSub(sub *deathSubscription) error {
 		sub.finish(nil)
 		return nil
 	}
+	if current := r.byHandle[watch.handle]; current != watch {
+		r.mu.Unlock()
+		sub.finish(nil)
+		return nil
+	}
 
 	delete(watch.subs, sub)
 	if len(watch.subs) != 0 {

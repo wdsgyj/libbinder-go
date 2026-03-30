@@ -469,6 +469,11 @@ func outputPath(model *gomodel.File) string {
 	dir := "."
 	if model.AIDLPackage != "" {
 		dir = generatedPackageDir(model.AIDLPackage)
+	} else if model.SourcePath != "" {
+		parent := filepath.Base(filepath.Dir(model.SourcePath))
+		if parent != "" && parent != "." && parent != string(filepath.Separator) {
+			dir = model.GoPackage
+		}
 	}
 	base := "aidl_generated"
 	if model.SourcePath != "" {

@@ -58,6 +58,10 @@ func (m basicMatrixImpl) DecorateTags(ctx context.Context, tags []string) ([]str
 	return DecorateTags(m.prefix, tags), nil
 }
 
+func (m basicMatrixImpl) DecorateTagGroups(ctx context.Context, groups []shared.BasicStringGroup) ([]shared.BasicStringGroup, error) {
+	return DecorateTagGroups(m.prefix, groups), nil
+}
+
 func (m basicMatrixImpl) DecoratePayloads(ctx context.Context, payloads []shared.BaselinePayload) ([]shared.BaselinePayload, error) {
 	return DecoratePayloads(m.prefix, payloads), nil
 }
@@ -68,6 +72,10 @@ func (m basicMatrixImpl) DecorateLabels(ctx context.Context, labels map[string]s
 
 func (m basicMatrixImpl) DecoratePayloadMap(ctx context.Context, payloadMap map[string]shared.BaselinePayload) (map[string]shared.BaselinePayload, error) {
 	return DecoratePayloadMap(m.prefix, payloadMap), nil
+}
+
+func (m basicMatrixImpl) DecoratePayloadBuckets(ctx context.Context, payloadBuckets map[string][]shared.BaselinePayload) (map[string][]shared.BaselinePayload, error) {
+	return DecoratePayloadBuckets(m.prefix, payloadBuckets), nil
 }
 
 func (m basicMatrixImpl) FlipMode(ctx context.Context, mode shared.BasicMode) (shared.BasicMode, error) {
@@ -82,6 +90,10 @@ func (m basicMatrixImpl) NormalizeBundle(ctx context.Context, value shared.Basic
 	return NormalizeBundle(m.prefix, value), nil
 }
 
+func (m basicMatrixImpl) NormalizeEnvelope(ctx context.Context, value shared.BasicEnvelope) (shared.BasicEnvelope, error) {
+	return NormalizeEnvelope(m.prefix, value), nil
+}
+
 func (m basicMatrixImpl) ExpandBundle(ctx context.Context, input shared.BasicBundle, payload shared.BasicBundle) (int32, shared.BasicBundle, shared.BasicBundle, error) {
 	ret, doubled, payloadOut := ExpandBundle(m.prefix, input, payload)
 	return ret, doubled, payloadOut, nil
@@ -92,6 +104,15 @@ func TestVerifyBasicMatrixService(t *testing.T) {
 		handler: shared.NewIBasicMatrixServiceHandler(basicMatrixImpl{prefix: "go"}),
 	})
 	if err := VerifyBasicMatrixService(context.Background(), client, "go"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyBasicMatrixPerformance(t *testing.T) {
+	client := shared.NewIBasicMatrixServiceClient(fakeBinder{
+		handler: shared.NewIBasicMatrixServiceHandler(basicMatrixImpl{prefix: "go"}),
+	})
+	if err := VerifyBasicMatrixPerformance(context.Background(), client, "go"); err != nil {
 		t.Fatal(err)
 	}
 }

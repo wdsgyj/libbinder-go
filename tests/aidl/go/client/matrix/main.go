@@ -16,6 +16,7 @@ func main() {
 	driverPath := flag.String("driver", "/dev/binder", "binder driver path")
 	serviceName := flag.String("service", "libbinder.go.aidltest.matrix", "service manager name")
 	expectPrefix := flag.String("expect-prefix", "java", "expected service output prefix")
+	mode := flag.String("mode", "basic", "verification mode: basic or perf")
 	timeout := flag.Duration("timeout", 10*time.Second, "overall call timeout")
 	flag.Parse()
 
@@ -32,8 +33,17 @@ func main() {
 	if err != nil {
 		fatalf("wait service %q: %v", *serviceName, err)
 	}
-	if err := cases.VerifyBasicMatrixService(ctx, svc, *expectPrefix); err != nil {
-		fatalf("verify basic matrix: %v", err)
+	switch *mode {
+	case "basic":
+		if err := cases.VerifyBasicMatrixService(ctx, svc, *expectPrefix); err != nil {
+			fatalf("verify basic matrix: %v", err)
+		}
+	case "perf":
+		if err := cases.VerifyBasicMatrixPerformance(ctx, svc, *expectPrefix); err != nil {
+			fatalf("verify basic matrix perf: %v", err)
+		}
+	default:
+		fatalf("unknown mode %q", *mode)
 	}
 
 	fmt.Fprintln(os.Stdout, "OK")

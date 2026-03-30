@@ -71,31 +71,17 @@ Each invocation semantic must appear in:
 - Cases marked `P0` are release-blocking.
 - Cases marked `P1` should be completed before claiming "feature-complete interoperability".
 - Cases marked `P2` are still required for the full target, but can follow after the blocking path is stable.
-- Current emulator-complete basic slice:
-  - `BOOT-001`
-  - `BOOT-002`
-  - `BOOT-003`
-  - `SYNC-001`
-  - `SYNC-002`
-  - `DIR-001`
-  - `DIR-002`
-  - `NULL-001`
-  - `NULL-002`
-  - `ARR-001`
-  - `ARR-002`
-  - `LIST-001`
-  - `LIST-002`
-  - `MAP-001`
-  - `MAP-002`
-  - `ENUM-001`
-  - `UNION-001`
-  - `PARC-001`
-- Current emulator-complete advanced slice:
-  - `BIND-001`
-  - `BIND-002`
-  - `ONEW-001`
-  - `EXC-001`
-  - `FD-001`
-  - `FD-002`
-- `MAP-003` is intentionally not part of the Java-AIDL-driven basic emulator matrix because current Android AIDL tooling rejects untyped `Map` in interface definitions.
+- Current status:
+  - Full emulator matrix is complete through `REAL-001`.
+  - Host-side AOSP binder corpus generate + compile regression is complete through `CORP-001`.
+  - Real-device gating is wired through `BOOT-004` and `REAL-002`, but was not executed in this emulator-only verification round.
+- Current emulator slices:
+  - basic: `BOOT-001` `BOOT-002` `BOOT-003` `SYNC-001` `SYNC-002` `DIR-001` `DIR-002` `NULL-001` `NULL-002` `ARR-001` `ARR-002` `LIST-001` `LIST-002` `MAP-001` `MAP-002` `ENUM-001` `UNION-001` `PARC-001`
+  - advanced: `BIND-001` `BIND-002` `ONEW-001` `EXC-001` `FD-001` `FD-002`
+  - extended: `LIST-003` `MAP-003` `MAP-004` `PARC-002` `PARC-003`
+  - governance + lifecycle: `BIND-003` `META-001` `LIFE-001` `LIFE-002`
+  - android callback: `ANDR-001` `ANDR-002`
+  - error + metadata runtime: `EXC-002` `EXC-003` `META-002` `RPC-001`
+  - scale: `PERF-001` `PERF-002`
+- `MAP-003` still cannot be expressed with Java SDK AIDL codegen because untyped `Map` is rejected there. The matrix now covers it via a hand-written Java Binder protocol shim plus Go generated bindings.
 - `FD-001` cannot be exercised through a normal Java AIDL SDK stub because `FileDescriptor` marshaling in generated Java uses hidden `Parcel.readRawFileDescriptor()` / `writeRawFileDescriptor()`. The emulator fixture therefore keeps the Go side on generated AIDL and uses a hand-written Java Binder protocol shim with the same descriptor and transaction codes.

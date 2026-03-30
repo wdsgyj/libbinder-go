@@ -1,8 +1,10 @@
 package com.wdsgyj.libbinder.aidltest.javaserver;
 
 import com.wdsgyj.libbinder.aidltest.shared.BasicBundle;
+import com.wdsgyj.libbinder.aidltest.shared.BasicEnvelope;
 import com.wdsgyj.libbinder.aidltest.shared.BasicMatrixFixtures;
 import com.wdsgyj.libbinder.aidltest.shared.BasicMode;
+import com.wdsgyj.libbinder.aidltest.shared.BasicStringGroup;
 import com.wdsgyj.libbinder.aidltest.shared.BasicUnion;
 import com.wdsgyj.libbinder.aidltest.shared.BaselinePayload;
 import com.wdsgyj.libbinder.aidltest.shared.IBasicMatrixService;
@@ -37,6 +39,11 @@ public final class BasicMatrixServiceImpl extends IBasicMatrixService.Stub {
     }
 
     @Override
+    public List<BasicStringGroup> DecorateTagGroups(List<BasicStringGroup> groups) {
+        return BasicMatrixFixtures.decorateTagGroups(prefix, groups);
+    }
+
+    @Override
     public List<BaselinePayload> DecoratePayloads(List<BaselinePayload> payloads) {
         return BasicMatrixFixtures.decoratePayloads(prefix, payloads);
     }
@@ -52,6 +59,11 @@ public final class BasicMatrixServiceImpl extends IBasicMatrixService.Stub {
     }
 
     @Override
+    public Map<String, List<BaselinePayload>> DecoratePayloadBuckets(Map<String, List<BaselinePayload>> payloadBuckets) {
+        return BasicMatrixFixtures.decoratePayloadBuckets(prefix, payloadBuckets);
+    }
+
+    @Override
     public byte FlipMode(byte mode) {
         return BasicMatrixFixtures.flipMode(mode);
     }
@@ -64,6 +76,11 @@ public final class BasicMatrixServiceImpl extends IBasicMatrixService.Stub {
     @Override
     public BasicBundle NormalizeBundle(BasicBundle value) {
         return BasicMatrixFixtures.normalizeBundle(prefix, value);
+    }
+
+    @Override
+    public BasicEnvelope NormalizeEnvelope(BasicEnvelope value) {
+        return BasicMatrixFixtures.normalizeEnvelope(prefix, value);
     }
 
     @Override

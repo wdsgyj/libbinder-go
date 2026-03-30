@@ -888,6 +888,10 @@ func defaultGoPackageName(aidlPkg string, sourcePath string) string {
 		return sanitizePackageName(lastSegment(aidlPkg))
 	}
 	if sourcePath != "" {
+		dir := filepath.Base(filepath.Dir(sourcePath))
+		if dir != "" && dir != "." && dir != string(filepath.Separator) {
+			return sanitizePackageName(dir)
+		}
 		base := strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath))
 		if base != "" {
 			return sanitizePackageName(base)

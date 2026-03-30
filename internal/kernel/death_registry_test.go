@@ -79,6 +79,28 @@ func TestDeathRegistryNotifyDeadFinishesSubscribers(t *testing.T) {
 	}
 }
 
+func TestDeathRegistryCloseAfterNotifyDeadIsNoop(t *testing.T) {
+	var cookie uintptr
+	registry := newDeathRegistry(func(_ context.Context, _ uint32, got uintptr) error {
+		cookie = got
+		return nil
+	}, func(_ context.Context, _ uint32, _ uintptr) error {
+		return nil
+	})
+
+	sub, err := registry.Watch(context.Background(), 29)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	registry.NotifyDead(cookie)
+	waitDone(t, sub.Done(), "sub.Done")
+
+	if err := sub.Close(); err != nil {
+		t.Fatalf("Close after NotifyDead: %v", err)
+	}
+}
+
 func TestDeathRegistryContextCancellationClosesSubscription(t *testing.T) {
 	var registry *deathRegistry
 	registry = newDeathRegistry(func(_ context.Context, _ uint32, _ uintptr) error {

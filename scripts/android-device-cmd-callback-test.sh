@@ -148,13 +148,16 @@ main() {
   assert_eq "${go_input_rc}" "${system_input_rc}" "input keyevent exit code"
 
   log "case: activity trace-ipc shell callback"
+  adb_capture "${serial}" "rm -f $(shell_quote "${TRACE_IPC_FILE}") && cmd activity trace-ipc start >/dev/null 2>&1 && timeout ${TIMEOUT_SEC} /system/bin/cmd activity trace-ipc stop --dump-file $(shell_quote "${TRACE_IPC_FILE}") >/dev/null 2>&1; rc=\$?; if [ -s $(shell_quote "${TRACE_IPC_FILE}") ]; then echo RC:\$rc FILE:present; else echo RC:\$rc FILE:missing; fi"
+  local system_trace_summary="${ADB_CAPTURE_OUT}"
+
   adb_capture "${serial}" "rm -f $(shell_quote "${TRACE_IPC_FILE}") $(shell_quote "${TRACE_FILE}") && cmd activity trace-ipc start >/dev/null 2>&1 && timeout ${TIMEOUT_SEC} ${trace_prefix}$(join_shell_words "${REMOTE_BIN}" activity trace-ipc stop --dump-file "${TRACE_IPC_FILE}") >$(shell_quote "${TRACE_FILE}") 2>&1; rc=\$?; if [ -s $(shell_quote "${TRACE_IPC_FILE}") ]; then echo RC:\$rc FILE:present; else echo RC:\$rc FILE:missing; fi"
   local summary="${ADB_CAPTURE_OUT}"
-  if [ "${summary}" != "RC:0 FILE:present" ]; then
+  if [ "${summary}" != "${system_trace_summary}" ]; then
     if [ "${TRACE_ENABLED}" = "1" ]; then
       "${ADB_BIN}" -s "${serial}" shell "tail -n 80 $(shell_quote "${TRACE_FILE}")" >&2 || true
     fi
-    die "unexpected trace-ipc summary: ${summary}"
+    die "unexpected trace-ipc summary: got ${summary}, want ${system_trace_summary}"
   fi
 
   log "pass"
