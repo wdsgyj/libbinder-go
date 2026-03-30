@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-03-30
+
 ### Added
 
 - 增加 AIDL emulator/runtime/release gate 脚本：
@@ -77,6 +79,13 @@
   - `binder.DebugHandleProvider`
   - local transaction 对 `DUMP_TRANSACTION` / `DEBUG_PID_TRANSACTION` 的保留处理
   - `internal/binderdebug` 对 Android binder proc / transactions 日志的解析
+
+### Changed
+
+- 仓库范围调整：
+  - `service/framework` 与 `service/lowlevel` 已从当前仓库移出，准备在独立工程中继续实现
+  - 与这两部分相关的可行性/现状说明已从当前仓库文档范围中收敛
+  - `0.0.8` 等历史版本中关于它们的记录继续保留，作为当时阶段性产出历史
 
 ### Changed
 

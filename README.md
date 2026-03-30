@@ -4,6 +4,11 @@
 
 它的目标不是重写 Linux kernel Binder driver，而是基于现有 `/dev/binder` 和 Binder RPC 语义，提供一套更符合 Go 风格的 runtime、AIDL 代码生成器和配套工具链。
 
+注意：
+
+- 先前在本仓库中实验过的 `service/framework` 与 `service/lowlevel` 相关实现已移出当前仓库范围，准备在独立工程中继续演进。
+- 因此本仓库当前不再承诺提供 Android framework 大接口 client facade 或 framework parcelable 实现层。
+
 ## 项目内容
 
 当前仓库主要包含这些部分：
@@ -42,6 +47,11 @@
   - `demo/cmdinputproto` 提供 `cmd input` 协议模拟与完整测试
   - `doc/` 下保存分析、路线图、实现计划和架构文档
   - `aosp-src/` 下保留上游 AOSP 参考源码
+
+当前不包含：
+
+- `service/framework` 风格的 framework parcelable / generated client 层
+- `service/lowlevel` 风格的 Android framework facade 层
 
 ## 目标
 

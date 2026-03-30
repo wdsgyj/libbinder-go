@@ -4,6 +4,9 @@
         android:allowBackup="false"
         android:hasCode="true"
         android:label="libbinder-go-aidl-java-client">
+        <receiver
+            android:name=".IntentBinderReceiver"
+            android:exported="true" />
         <activity
             android:name=".PlaceholderActivity"
             android:exported="false" />

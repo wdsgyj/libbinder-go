@@ -25,6 +25,10 @@ JAVA_SERVER_PACKAGE="com.wdsgyj.libbinder.aidltest.javaserver"
 JAVA_CLIENT_PACKAGE="com.wdsgyj.libbinder.aidltest.javaclient"
 JAVA_ADVANCED_SERVER_MAIN="com.wdsgyj.libbinder.aidltest.javaserver.AdvancedServerMain"
 JAVA_ADVANCED_CLIENT_MAIN="com.wdsgyj.libbinder.aidltest.javaclient.AdvancedClientMain"
+JAVA_INTENT_BINDER_SENDER_COMPONENT="${JAVA_SERVER_PACKAGE}/.IntentBinderSenderReceiver"
+JAVA_INTENT_BINDER_ACTION="com.wdsgyj.libbinder.aidltest.action.SEND_INTENT_BINDER"
+INTENT_BINDER_SENDER_TAG="IntentBinderSender"
+INTENT_BINDER_RECEIVER_TAG="IntentBinderReceiver"
 
 ADVANCED_SERVICE_NAME="${ADVANCED_SERVICE_NAME:-libbinder.go.aidltest.advanced}"
 
@@ -70,6 +74,7 @@ Usage:
 Runs the advanced Android emulator AIDL compatibility slice:
   1. Java server -> Go client (advanced)
   2. Go server -> Java client (advanced)
+  3. Java binder -> AMS Intent/Bundle -> Java receiver (advanced binder transport)
 EOF
 }
 
@@ -243,6 +248,34 @@ run_go_client() {
   run_foreground_to_log "${log_path}" "cd $(android_shell_quote "${REMOTE_DIR}") && exec ./$(basename "${binary_path}") $(android_join_shell_words "-service" "${service_name}" "-expect-prefix" "${expected_prefix}")"
 }
 
+clear_logcat() {
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" logcat -c
+}
+
+logcat_contains() {
+  local tag="$1"
+  local pattern="$2"
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" logcat -d -s "${tag}:I" "*:S" | grep -F "${pattern}" >/dev/null 2>&1
+}
+
+wait_for_log_pattern() {
+  local tag="$1"
+  local pattern="$2"
+  local timeout_secs="${3:-15}"
+  local start_ts=""
+
+  start_ts="$(date +%s)"
+  while true; do
+    if logcat_contains "${tag}" "${pattern}"; then
+      return 0
+    fi
+    if [ $(( $(date +%s) - start_ts )) -ge "${timeout_secs}" ]; then
+      android_die "timed out waiting for log pattern ${pattern} in tag ${tag}"
+    fi
+    sleep 1
+  done
+}
+
 run_case_java_server_go_client_advanced() {
   log "case: java_server_go_client advanced"
   start_java_server "${JAVA_ADVANCED_SERVER_MAIN}" "${ADVANCED_SERVICE_NAME}" "java" "${REMOTE_ADVANCED_JAVA_SERVER_LOG}"
@@ -255,6 +288,26 @@ run_case_go_server_java_client_advanced() {
   start_go_server "${REMOTE_ADVANCED_GO_SERVER}" "${ADVANCED_SERVICE_NAME}" "go" "${REMOTE_ADVANCED_GO_SERVER_LOG}"
   run_java_client "${JAVA_ADVANCED_CLIENT_MAIN}" "${ADVANCED_SERVICE_NAME}" "go" "${REMOTE_ADVANCED_JAVA_CLIENT_LOG}"
   stop_last_server
+}
+
+run_case_java_binder_via_intent_transport() {
+  local token=""
+  local sender_pattern=""
+  local receiver_pattern=""
+
+  log "case: java_binder_via_ams_intent_transport"
+  token="intent-$(date +%s)"
+  sender_pattern="INTENT_BINDER_SENDER_ONSYNC token=${token} value=intent-transport-${token}"
+  receiver_pattern="INTENT_BINDER_RECEIVER_OK token=${token} descriptor=com.wdsgyj.libbinder.aidltest.shared.IAdvancedCallback reply=sender:intent-transport-${token}"
+
+  clear_logcat
+  "${ADB_BIN}" -s "${ANDROID_SERIAL}" shell am broadcast \
+    -n "${JAVA_INTENT_BINDER_SENDER_COMPONENT}" \
+    -a "${JAVA_INTENT_BINDER_ACTION}" \
+    --es token "${token}" >/dev/null
+
+  wait_for_log_pattern "${INTENT_BINDER_SENDER_TAG}" "${sender_pattern}" 20
+  wait_for_log_pattern "${INTENT_BINDER_RECEIVER_TAG}" "${receiver_pattern}" 20
 }
 
 main() {
@@ -277,6 +330,7 @@ main() {
 
   run_case_java_server_go_client_advanced
   run_case_go_server_java_client_advanced
+  run_case_java_binder_via_intent_transport
 
   log "all advanced AIDL cases passed on ${ANDROID_SERIAL}"
 }
